@@ -5,7 +5,6 @@ const db = new database.DatabaseSync("db.sqlite");
 db.exec(`
 PRAGMA foreign_keys = ON;
 
-
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     fullname TEXT NOT NULL,
@@ -61,6 +60,7 @@ CREATE TABLE IF NOT EXISTS booked_tickets (
         ON DELETE CASCADE
 );
 `);
+
 // Users table
 // This table keeps information about people who register in the system.
 // Users can log in, view available events, and book tickets.
@@ -211,5 +211,3 @@ CREATE TABLE IF NOT EXISTS booked_tickets (
 
 
 
-
-/
