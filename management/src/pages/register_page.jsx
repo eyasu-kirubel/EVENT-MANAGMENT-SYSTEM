@@ -12,8 +12,8 @@ function getPasswordStrength(pw) {
   return score;
 }
 
-const strengthLabels = ["", "Weak", "Fair", "Good", "Strong", "Very Strong"];
-const strengthColors = ["", "#e74c3c", "#e67e22", "#f1c40f", "#2ecc71", "#00b894"];
+const strengthLabels = ["", "Weak", "Fair", "Good", "Strong", "Excellent"];
+const strengthColors = ["", "#ff4757", "#ff6348", "#ffa502", "#2ed573", "#0be881"];
 
 export default function RegisterPage() {
   const [step, setStep] = useState(1);
@@ -29,6 +29,7 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [globalError, setGlobalError] = useState("");
+  const [focusedField, setFocusedField] = useState("");
   const { register } = useAuth();
   const navigate = useNavigate();
 
@@ -98,220 +99,334 @@ export default function RegisterPage() {
     }
   }
 
+  const isFocused = (name) => focusedField === name || form[name];
+  const hasError = (name) => !!errors[name];
+
   return (
-    <div className="reg-page">
-      <div className="reg-card">
-        <div className="reg-header">
-          <div className="reg-logo">&#127914;</div>
-          <h2>Create Account</h2>
-          <p>Join EventManager today</p>
-        </div>
-
-        {/* Progress bar */}
-        <div className="reg-progress">
-          {[1, 2, 3].map((s) => (
-            <div key={s} className={`reg-progress-step ${step >= s ? "active" : ""}`}>
-              <div className={`reg-progress-dot ${step >= s ? "filled" : ""}`}>
-                {step > s ? "\u2713" : s}
-              </div>
-              <span>{s === 1 ? "Role" : s === 2 ? "Details" : "Security"}</span>
+    <div className="reg2-page">
+      <div className="reg2-card">
+        {/* Left Panel — Branded */}
+        <div className="reg2-left">
+          <div className="reg2-left-content">
+            <div className="reg2-brand-icon">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                <rect width="48" height="48" rx="12" fill="rgba(255,255,255,0.2)" />
+                <path d="M14 34V18L24 12L34 18V34L24 28L14 34Z" stroke="white" strokeWidth="2.5" strokeLinejoin="round" />
+                <circle cx="24" cy="22" r="3" fill="white" />
+              </svg>
             </div>
-          ))}
-          <div className="reg-progress-line">
-            <div className="reg-progress-fill" style={{ width: `${((step - 1) / 2) * 100}%` }} />
+            <h1>EventManager</h1>
+            <p className="reg2-tagline">Where great events begin</p>
+
+            <div className="reg2-features">
+              <div className="reg2-feature">
+                <span className="reg2-feature-dot" />
+                <span>Discover and book events near you</span>
+              </div>
+              <div className="reg2-feature">
+                <span className="reg2-feature-dot" />
+                <span>Digital QR tickets — no paper needed</span>
+              </div>
+              <div className="reg2-feature">
+                <span className="reg2-feature-dot" />
+                <span>Trusted by thousands of organizers</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="reg2-left-footer">
+            <span>Addis Ababa, Ethiopia</span>
           </div>
         </div>
 
-        {globalError && <div className="reg-error">{globalError}</div>}
-
-        <form onSubmit={handleSubmit} noValidate>
-          {/* STEP 1 — Role Selection */}
-          <div className={`reg-step ${step === 1 ? "visible" : "hidden-left"}`}>
-            <h3>Who are you?</h3>
-            <p className="reg-step-sub">Choose how you want to use the platform</p>
-
-            <div className="reg-role-grid">
-              <button
-                type="button"
-                className={`reg-role-card ${form.role === "user" ? "selected" : ""}`}
-                onClick={() => selectRole("user")}
-              >
-                <div className="reg-role-icon">&#128100;</div>
-                <div className="reg-role-title">Customer</div>
-                <div className="reg-role-desc">Browse events, book tickets, and track your attendance</div>
-              </button>
-
-              <button
-                type="button"
-                className={`reg-role-card ${form.role === "organizer" ? "selected" : ""}`}
-                onClick={() => selectRole("organizer")}
-              >
-                <div className="reg-role-icon">&#127919;</div>
-                <div className="reg-role-title">Organizer</div>
-                <div className="reg-role-desc">Create events, manage bookings, and check in attendees</div>
-              </button>
-            </div>
-            {errors.role && <div className="reg-field-error">{errors.role}</div>}
-
-            <button type="button" className="reg-btn reg-btn-primary" onClick={goNext}>
-              Continue &rarr;
-            </button>
-          </div>
-
-          {/* STEP 2 — Personal Info */}
-          {step === 2 && (
-            <div className="reg-step visible">
-              <h3>Personal Information</h3>
-              <p className="reg-step-sub">Tell us about yourself</p>
-
-              <div className="reg-field">
-                <label>Full Name</label>
-                <div className="reg-input-wrap">
-                  <span className="reg-input-icon">&#128100;</span>
-                  <input
-                    type="text"
-                    name="fullname"
-                    placeholder="e.g. Hana Tesfaye"
-                    value={form.fullname}
-                    onChange={handleChange}
-                    className={errors.fullname ? "input-error" : ""}
-                  />
+        {/* Right Panel — Form */}
+        <div className="reg2-right">
+          <div className="reg2-form-wrap">
+            {/* Progress */}
+            <div className="reg2-progress">
+              {[1, 2, 3].map((s) => (
+                <div key={s} className={`reg2-pstep ${step >= s ? "active" : ""} ${step > s ? "done" : ""}`}>
+                  <div className="reg2-pstep-circle">
+                    {step > s ? (
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <path d="M2.5 7L5.5 10L11.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    ) : (
+                      s
+                    )}
+                  </div>
+                  <span className="reg2-pstep-label">
+                    {s === 1 ? "Role" : s === 2 ? "Info" : "Security"}
+                  </span>
                 </div>
-                {errors.fullname && <div className="reg-field-error">{errors.fullname}</div>}
-              </div>
-
-              <div className="reg-field">
-                <label>Phone Number</label>
-                <div className="reg-input-wrap">
-                  <span className="reg-input-icon">&#128222;</span>
-                  <input
-                    type="tel"
-                    name="phonenumber"
-                    placeholder="09XXXXXXXX"
-                    value={form.phonenumber}
-                    onChange={handleChange}
-                    className={errors.phonenumber ? "input-error" : ""}
-                  />
-                </div>
-                {errors.phonenumber && <div className="reg-field-error">{errors.phonenumber}</div>}
-              </div>
-
-              <div className="reg-field">
-                <label>Date of Birth <span className="reg-optional">(optional)</span></label>
-                <div className="reg-input-wrap">
-                  <span className="reg-input-icon">&#128197;</span>
-                  <input
-                    type="date"
-                    name="birthDate"
-                    value={form.birthDate}
-                    onChange={handleChange}
-                  />
-                </div>
-              </div>
-
-              <div className="reg-btn-row">
-                <button type="button" className="reg-btn reg-btn-ghost" onClick={goBack}>
-                  &larr; Back
-                </button>
-                <button type="button" className="reg-btn reg-btn-primary" onClick={goNext}>
-                  Continue &rarr;
-                </button>
+              ))}
+              <div className="reg2-pstep-track">
+                <div className="reg2-pstep-fill" style={{ width: `${((step - 1) / 2) * 100}%` }} />
               </div>
             </div>
-          )}
 
-          {/* STEP 3 — Password */}
-          {step === 3 && (
-            <div className="reg-step visible">
-              <h3>Secure Your Account</h3>
-              <p className="reg-step-sub">Create a strong password</p>
+            {globalError && <div className="reg2-error">{globalError}</div>}
 
-              <div className="reg-field">
-                <label>Password</label>
-                <div className="reg-input-wrap">
-                  <span className="reg-input-icon">&#128274;</span>
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    name="password"
-                    placeholder="Min 6 characters"
-                    value={form.password}
-                    onChange={handleChange}
-                    className={errors.password ? "input-error" : ""}
-                  />
+            <form onSubmit={handleSubmit} noValidate>
+              {/* STEP 1 — Role */}
+              <div className={`reg2-step ${step === 1 ? "active" : ""}`}>
+                <div className="reg2-step-head">
+                  <h2>Choose your role</h2>
+                  <p>Pick how you want to use EventManager</p>
+                </div>
+
+                <div className="reg2-role-grid">
                   <button
                     type="button"
-                    className="reg-pw-toggle"
-                    onClick={() => setShowPassword(!showPassword)}
-                    tabIndex={-1}
+                    className={`reg2-role-card ${form.role === "user" ? "selected" : ""}`}
+                    onClick={() => selectRole("user")}
                   >
-                    {showPassword ? "&#128065;" : "&#128064;"}
+                    <div className="reg2-role-ring">
+                      <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                        <circle cx="16" cy="12" r="5" stroke="currentColor" strokeWidth="2" />
+                        <path d="M6 28C6 22.477 10.477 18 16 18C21.523 18 26 22.477 26 28" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    </div>
+                    <span className="reg2-role-title">Customer</span>
+                    <span className="reg2-role-desc">Browse events & book tickets</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`reg2-role-card ${form.role === "organizer" ? "selected" : ""}`}
+                    onClick={() => selectRole("organizer")}
+                  >
+                    <div className="reg2-role-ring">
+                      <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                        <rect x="4" y="6" width="24" height="20" rx="3" stroke="currentColor" strokeWidth="2" />
+                        <path d="M4 13H28" stroke="currentColor" strokeWidth="2" />
+                        <path d="M12 6V2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        <path d="M20 6V2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        <circle cx="16" cy="20" r="2" fill="currentColor" />
+                      </svg>
+                    </div>
+                    <span className="reg2-role-title">Organizer</span>
+                    <span className="reg2-role-desc">Create & manage events</span>
                   </button>
                 </div>
-                {errors.password && <div className="reg-field-error">{errors.password}</div>}
+                {errors.role && <div className="reg2-field-err">{errors.role}</div>}
 
-                {form.password && (
-                  <div className="reg-strength">
-                    <div className="reg-strength-bars">
-                      {[1, 2, 3, 4, 5].map((i) => (
-                        <div
-                          key={i}
-                          className={`reg-strength-bar ${i <= pwStrength ? "filled" : ""}`}
-                          style={i <= pwStrength ? { background: strengthColors[pwStrength] } : {}}
-                        />
-                      ))}
-                    </div>
-                    <span
-                      className="reg-strength-label"
-                      style={{ color: strengthColors[pwStrength] }}
-                    >
-                      {strengthLabels[pwStrength]}
-                    </span>
-                  </div>
-                )}
+                <button type="button" className="reg2-btn-primary" onClick={goNext}>
+                  Continue
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M3 8H13M13 8L9 4M13 8L9 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
               </div>
 
-              <div className="reg-field">
-                <label>Confirm Password</label>
-                <div className="reg-input-wrap">
-                  <span className="reg-input-icon">&#128273;</span>
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    name="confirmPassword"
-                    placeholder="Re-enter password"
-                    value={form.confirmPassword}
-                    onChange={handleChange}
-                    className={errors.confirmPassword ? "input-error" : ""}
-                  />
-                  {form.confirmPassword && form.password === form.confirmPassword && (
-                    <span className="reg-check-ok">&#10003;</span>
+              {/* STEP 2 — Info */}
+              <div className={`reg2-step ${step === 2 ? "active" : ""}`}>
+                <div className="reg2-step-head">
+                  <h2>Your information</h2>
+                  <p>Tell us a bit about yourself</p>
+                </div>
+
+                <div className={`reg2-field ${hasError("fullname") ? "err" : ""} ${isFocused("fullname") ? "focused" : ""}`}>
+                  <label>Full Name</label>
+                  <div className="reg2-input-box">
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                      <circle cx="9" cy="6" r="3.5" stroke="currentColor" strokeWidth="1.5" />
+                      <path d="M2 17C2 13.134 5.134 10 9 10C12.866 10 16 13.134 16 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
+                    <input
+                      type="text"
+                      name="fullname"
+                      placeholder=" "
+                      value={form.fullname}
+                      onChange={handleChange}
+                      onFocus={() => setFocusedField("fullname")}
+                      onBlur={() => setFocusedField("")}
+                    />
+                    <label className="reg2-floating">e.g. Hana Tesfaye</label>
+                  </div>
+                  {errors.fullname && <span className="reg2-field-err">{errors.fullname}</span>}
+                </div>
+
+                <div className={`reg2-field ${hasError("phonenumber") ? "err" : ""} ${isFocused("phonenumber") ? "focused" : ""}`}>
+                  <label>Phone Number</label>
+                  <div className="reg2-input-box">
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                      <rect x="4" y="1" width="10" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                      <circle cx="9" cy="14" r="1" fill="currentColor" />
+                    </svg>
+                    <input
+                      type="tel"
+                      name="phonenumber"
+                      placeholder=" "
+                      value={form.phonenumber}
+                      onChange={handleChange}
+                      onFocus={() => setFocusedField("phonenumber")}
+                      onBlur={() => setFocusedField("")}
+                    />
+                    <label className="reg2-floating">09XXXXXXXX</label>
+                  </div>
+                  {errors.phonenumber && <span className="reg2-field-err">{errors.phonenumber}</span>}
+                </div>
+
+                <div className={`reg2-field ${hasError("birthDate") ? "err" : ""} ${isFocused("birthDate") ? "focused" : ""}`}>
+                  <label>Date of Birth <span className="reg2-optional">optional</span></label>
+                  <div className="reg2-input-box">
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                      <rect x="1" y="3" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                      <path d="M1 7H17" stroke="currentColor" strokeWidth="1.5" />
+                      <path d="M5 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                      <path d="M13 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
+                    <input
+                      type="date"
+                      name="birthDate"
+                      placeholder=" "
+                      value={form.birthDate}
+                      onChange={handleChange}
+                      onFocus={() => setFocusedField("birthDate")}
+                      onBlur={() => setFocusedField("")}
+                    />
+                  </div>
+                </div>
+
+                <div className="reg2-btn-row">
+                  <button type="button" className="reg2-btn-ghost" onClick={goBack}>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M13 8H3M3 8L7 4M3 8L7 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    Back
+                  </button>
+                  <button type="button" className="reg2-btn-primary" onClick={goNext}>
+                    Continue
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M3 8H13M13 8L9 4M13 8L9 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              {/* STEP 3 — Password */}
+              <div className={`reg2-step ${step === 3 ? "active" : ""}`}>
+                <div className="reg2-step-head">
+                  <h2>Secure your account</h2>
+                  <p>Create a strong, unique password</p>
+                </div>
+
+                <div className={`reg2-field ${hasError("password") ? "err" : ""} ${isFocused("password") ? "focused" : ""}`}>
+                  <label>Password</label>
+                  <div className="reg2-input-box">
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                      <rect x="2" y="8" width="14" height="9" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                      <path d="M5 8V5C5 2.79 6.79 1 9 1C11.21 1 13 2.79 13 5V8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                      <circle cx="9" cy="13" r="1.5" fill="currentColor" />
+                    </svg>
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      name="password"
+                      placeholder=" "
+                      value={form.password}
+                      onChange={handleChange}
+                      onFocus={() => setFocusedField("password")}
+                      onBlur={() => setFocusedField("")}
+                    />
+                    <label className="reg2-floating">Min 6 characters</label>
+                    <button
+                      type="button"
+                      className="reg2-eye"
+                      onClick={() => setShowPassword(!showPassword)}
+                      tabIndex={-1}
+                    >
+                      {showPassword ? (
+                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                          <path d="M1.5 9C1.5 9 4 4 9 4C14 4 16.5 9 16.5 9C16.5 9 14 14 9 14C4 14 1.5 9 1.5 9Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          <circle cx="9" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+                        </svg>
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                          <path d="M2 2L16 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          <path d="M7.2 7.2C6.44 7.96 6 9 6 10C6 12 7.34 13.5 9 13.5C10 13.5 10.84 13 11.4 12.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          <path d="M1.5 9C1.5 9 4 4 9 4C10.2 4 11.3 4.3 12.2 4.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          <path d="M14.5 6.5C15.5 7.6 16.5 9 16.5 9C16.5 9 14 14 9 14C8.2 14 7.4 13.8 6.7 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                  {errors.password && <span className="reg2-field-err">{errors.password}</span>}
+
+                  {form.password && (
+                    <div className="reg2-strength">
+                      <div className="reg2-strength-track">
+                        {[1, 2, 3, 4, 5].map((i) => (
+                          <div
+                            key={i}
+                            className={`reg2-strength-seg ${i <= pwStrength ? "on" : ""}`}
+                            style={i <= pwStrength ? { background: strengthColors[pwStrength] } : {}}
+                          />
+                        ))}
+                      </div>
+                      <span className="reg2-strength-text" style={{ color: strengthColors[pwStrength] }}>
+                        {strengthLabels[pwStrength]}
+                      </span>
+                    </div>
                   )}
                 </div>
-                {errors.confirmPassword && <div className="reg-field-error">{errors.confirmPassword}</div>}
-              </div>
 
-              <div className="reg-btn-row">
-                <button type="button" className="reg-btn reg-btn-ghost" onClick={goBack}>
-                  &larr; Back
-                </button>
-                <button
-                  type="submit"
-                  className="reg-btn reg-btn-primary reg-btn-full"
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <span className="reg-spinner" />
-                  ) : (
-                    "Create Account"
-                  )}
-                </button>
+                <div className={`reg2-field ${hasError("confirmPassword") ? "err" : ""} ${isFocused("confirmPassword") ? "focused" : ""}`}>
+                  <label>Confirm Password</label>
+                  <div className="reg2-input-box">
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                      <path d="M5 9L8 12L13 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      <circle cx="9" cy="9" r="7.5" stroke="currentColor" strokeWidth="1.5" />
+                    </svg>
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      name="confirmPassword"
+                      placeholder=" "
+                      value={form.confirmPassword}
+                      onChange={handleChange}
+                      onFocus={() => setFocusedField("confirmPassword")}
+                      onBlur={() => setFocusedField("")}
+                    />
+                    <label className="reg2-floating">Re-enter password</label>
+                    {form.confirmPassword && form.password === form.confirmPassword && (
+                      <span className="reg2-check">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                          <path d="M3 8L6.5 11.5L13 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </span>
+                    )}
+                  </div>
+                  {errors.confirmPassword && <span className="reg2-field-err">{errors.confirmPassword}</span>}
+                </div>
+
+                <div className="reg2-btn-row">
+                  <button type="button" className="reg2-btn-ghost" onClick={goBack}>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M13 8H3M3 8L7 4M3 8L7 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    Back
+                  </button>
+                  <button type="submit" className="reg2-btn-primary" disabled={loading}>
+                    {loading ? (
+                      <span className="reg2-spinner" />
+                    ) : (
+                      <>
+                        Create Account
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                          <path d="M3 8H13M13 8L9 4M13 8L9 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
+            </form>
+
+            <div className="reg2-footer">
+              Already have an account? <Link to="/login">Sign in</Link>
             </div>
-          )}
-        </form>
-
-        <p className="reg-footer-link">
-          Already have an account? <Link to="/login">Sign in</Link>
-        </p>
+          </div>
+        </div>
       </div>
     </div>
   );
