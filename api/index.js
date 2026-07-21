@@ -5,20 +5,54 @@ db;
 
 const server = express();
 
-server.get("/login", (request, response) => {
-  //
+// Register as User
+server.post("/register/user", (request, response) => {
+
 });
 
-server.get("/register", (request, response) => {
-  //
+// Login
+server.post("/login", (request, response) => {
+
 });
 
-server.get("/buy-ticket/:event_id", (request, response) => {
-  const eventId = request.params.event_id;
 
-  response.send(eventId);
-  //
+// Get all available events
+server.get("/events", (request, response) => {
+
 });
+
+// Get details of a specific event
+server.get("/events/:event_id", (request, response) => {
+
+});
+
+
+// Book ticket for an event
+server.post("/bookings", (request, response) => {
+
+});
+
+// View all bookings of a user
+server.get("/bookings/user/:user_id", (request, response) => {
+
+});
+
+// View a specific booking
+server.get("/bookings/:booking_id", (request, response) => {
+
+});
+
+// Cancel a booking
+server.delete("/bookings/:booking_id", (request, response) => {
+
+});
+
+
+// Pay for a booking
+server.post("/payments", (request, response) => {
+
+});
+
 
 // AS ORGANIZER
 server.get("/post-ticket", (request, response) => {
