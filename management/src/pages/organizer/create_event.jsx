@@ -42,20 +42,21 @@ export default function CreateEventPage() {
   }
 
   return (
-    <div className="page">
-      <h1>Create Event</h1>
+    <div className="page page-enter">
+      <h1 style={{ marginBottom: 8 }}>Create Event</h1>
+      <p style={{ color: "#64748b", marginBottom: 32, fontSize: "0.9rem" }}>Fill in the details to create a new event</p>
 
       <form className="form-card" onSubmit={handleSubmit}>
         {error && <div className="error">{error}</div>}
 
         <div className="form-group">
           <label>Title *</label>
-          <input type="text" name="title" value={form.title} onChange={handleChange} required />
+          <input type="text" name="title" value={form.title} onChange={handleChange} placeholder="Event name" required />
         </div>
 
         <div className="form-group">
           <label>Description</label>
-          <textarea name="description" value={form.description} onChange={handleChange} rows={4} />
+          <textarea name="description" value={form.description} onChange={handleChange} rows={4} placeholder="Tell people about your event..." />
         </div>
 
         <div className="form-row">
@@ -81,13 +82,13 @@ export default function CreateEventPage() {
 
         <div className="form-group">
           <label>Location *</label>
-          <input type="text" name="location" value={form.location} onChange={handleChange} required />
+          <input type="text" name="location" value={form.location} onChange={handleChange} placeholder="City or venue" required />
         </div>
 
         <div className="form-row">
           <div className="form-group">
             <label>Capacity *</label>
-            <input type="number" name="capacity" value={form.capacity} onChange={handleChange} min="1" required />
+            <input type="number" name="capacity" value={form.capacity} onChange={handleChange} min="1" placeholder="Max attendees" required />
           </div>
           <div className="form-group">
             <label>Photo URL</label>
@@ -106,7 +107,7 @@ export default function CreateEventPage() {
           </div>
         </div>
 
-        <button type="submit" className="btn btn-primary" disabled={loading}>
+        <button type="submit" className="btn btn-primary" disabled={loading} style={{ padding: "14px 28px", borderRadius: 14, fontSize: "0.95rem", marginTop: 8 }}>
           {loading ? "Creating..." : "Create Event"}
         </button>
       </form>

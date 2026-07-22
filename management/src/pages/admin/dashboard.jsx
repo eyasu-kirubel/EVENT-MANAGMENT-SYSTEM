@@ -23,8 +23,9 @@ export default function AdminDashboard() {
   if (loading) return <div className="loading">Loading dashboard...</div>;
 
   return (
-    <div className="page">
-      <h1>Admin Dashboard</h1>
+    <div className="page page-enter">
+      <h1 style={{ marginBottom: 8 }}>Admin Dashboard</h1>
+      <p style={{ color: "#64748b", marginBottom: 32, fontSize: "0.9rem" }}>Platform overview and management</p>
 
       {stats && (
         <div className="stats-grid">

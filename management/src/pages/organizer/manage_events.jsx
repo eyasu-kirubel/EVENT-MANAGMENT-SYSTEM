@@ -39,11 +39,15 @@ export default function ManageEventsPage() {
   if (loading) return <div className="loading">Loading events...</div>;
 
   return (
-    <div className="page">
-      <h1>Manage Events & Attendance</h1>
+    <div className="page page-enter">
+      <h1 style={{ marginBottom: 8 }}>Manage Events</h1>
+      <p style={{ color: "#64748b", marginBottom: 32, fontSize: "0.9rem" }}>View attendees and track check-ins</p>
 
       {events.length === 0 ? (
-        <p className="empty">No events found.</p>
+        <div className="m2-empty">
+          <h3>No events found</h3>
+          <p>Create an event to start tracking attendees</p>
+        </div>
       ) : (
         <>
           <div className="events-select">
@@ -51,20 +55,24 @@ export default function ManageEventsPage() {
               <button
                 key={event.id}
                 className={`btn ${selectedEvent === event.id ? "btn-primary" : "btn-outline"}`}
+                style={{ borderRadius: 12 }}
                 onClick={() => viewAttendees(event.id)}
               >
-                {event.title} ({event.ticketsSold || 0} tickets)
+                {event.title} ({event.ticketsSold || 0})
               </button>
             ))}
           </div>
 
           {selectedEvent && (
             <div className="attendees-section">
-              <h2>Attendees</h2>
+              <h2 style={{ marginBottom: 16 }}>Attendees</h2>
               {attendeesLoading ? (
-                <p>Loading...</p>
+                <p style={{ color: "#64748b" }}>Loading...</p>
               ) : attendees.length === 0 ? (
-                <p className="empty">No attendees yet.</p>
+                <div className="m2-empty">
+                  <h3>No attendees yet</h3>
+                  <p>Attendees will appear here once tickets are booked</p>
+                </div>
               ) : (
                 <div className="table-container">
                   <table>
@@ -80,7 +88,7 @@ export default function ManageEventsPage() {
                     <tbody>
                       {attendees.map((a) => (
                         <tr key={a.id}>
-                          <td>{a.fullname}</td>
+                          <td style={{ fontWeight: 600 }}>{a.fullname}</td>
                           <td>{a.phonenumber}</td>
                           <td>{a.quantity}</td>
                           <td>

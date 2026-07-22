@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import Navbar from "./components/Navbar";
+import VideoBackground from "./components/VideoBackground";
 import ProtectedRoute from "./components/ProtectedRoute";
 import LoginPage from "./pages/login_page";
 import RegisterPage from "./pages/register_page";
@@ -18,6 +19,7 @@ import "./App.css";
 function App() {
   return (
     <AuthProvider>
+      <VideoBackground />
       <Navbar />
       <main className="container">
         <Routes>

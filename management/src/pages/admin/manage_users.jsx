@@ -42,8 +42,9 @@ export default function ManageUsersPage() {
   if (loading) return <div className="loading">Loading users...</div>;
 
   return (
-    <div className="page">
-      <h1>Manage Users</h1>
+    <div className="page page-enter">
+      <h1 style={{ marginBottom: 8 }}>Manage Users</h1>
+      <p style={{ color: "#64748b", marginBottom: 32, fontSize: "0.9rem" }}>View and manage platform users</p>
 
       <div className="table-container">
         <table>
@@ -59,7 +60,7 @@ export default function ManageUsersPage() {
           <tbody>
             {users.map((user) => (
               <tr key={user.id}>
-                <td>{user.fullname}</td>
+                <td style={{ fontWeight: 600 }}>{user.fullname}</td>
                 <td>{user.phonenumber}</td>
                 <td>{user.birthDate || "-"}</td>
                 <td>
@@ -74,7 +75,7 @@ export default function ManageUsersPage() {
                   </select>
                 </td>
                 <td>
-                  <button onClick={() => deleteUser(user.id)} className="btn btn-danger btn-sm">Delete</button>
+                  <button onClick={() => deleteUser(user.id)} className="btn btn-danger btn-sm" style={{ borderRadius: 8 }}>Delete</button>
                 </td>
               </tr>
             ))}

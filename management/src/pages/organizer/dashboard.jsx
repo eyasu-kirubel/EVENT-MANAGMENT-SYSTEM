@@ -35,8 +35,9 @@ export default function OrganizerDashboard() {
   const totalTickets = events.reduce((sum, e) => sum + (e.ticketsSold || 0), 0);
 
   return (
-    <div className="page">
-      <h1>Organizer Dashboard</h1>
+    <div className="page page-enter">
+      <h1 style={{ marginBottom: 8 }}>Organizer Dashboard</h1>
+      <p style={{ color: "#64748b", marginBottom: 32, fontSize: "0.9rem" }}>Manage your events and track performance</p>
 
       <div className="stats-grid">
         <div className="stat-card">
@@ -57,9 +58,12 @@ export default function OrganizerDashboard() {
         </div>
       </div>
 
-      <h2>My Events</h2>
+      <h2 style={{ marginBottom: 16 }}>My Events</h2>
       {events.length === 0 ? (
-        <p className="empty">You haven't created any events yet.</p>
+        <div className="m2-empty">
+          <h3>No events yet</h3>
+          <p>Create your first event to get started</p>
+        </div>
       ) : (
         <div className="table-container">
           <table>
@@ -77,14 +81,14 @@ export default function OrganizerDashboard() {
             <tbody>
               {events.map((event) => (
                 <tr key={event.id}>
-                  <td>{event.title}</td>
+                  <td style={{ fontWeight: 600 }}>{event.title}</td>
                   <td>{event.category}</td>
                   <td>{event.location}</td>
-                  <td>{event.startDate} - {event.endDate}</td>
+                  <td>{event.startDate} — {event.endDate}</td>
                   <td><span className={`status-badge status-${event.status.toLowerCase()}`}>{event.status}</span></td>
                   <td>{event.ticketsSold || 0}</td>
                   <td>
-                    <button onClick={() => handleDelete(event.id)} className="btn btn-danger btn-sm">Delete</button>
+                    <button onClick={() => handleDelete(event.id)} className="btn btn-danger btn-sm" style={{ borderRadius: 8 }}>Delete</button>
                   </td>
                 </tr>
               ))}

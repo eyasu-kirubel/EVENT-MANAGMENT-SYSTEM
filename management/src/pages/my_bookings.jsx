@@ -22,10 +22,6 @@ export default function MyBookingsPage() {
 
   function downloadQR(ticketId) {
     const token = localStorage.getItem("token");
-    const link = document.createElement("a");
-    link.href = `http://localhost:3000/api/tickets/${ticketId}/qr`;
-    link.target = "_blank";
-    // Fetch the SVG via the API
     fetch(`http://localhost:3000/api/tickets/${ticketId}/qr`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -44,27 +40,41 @@ export default function MyBookingsPage() {
   if (loading) return <div className="loading">Loading your bookings...</div>;
 
   return (
-    <div className="page">
-      <h1>My Bookings</h1>
+    <div className="page page-enter">
+      <h1 style={{ marginBottom: 8 }}>My Bookings</h1>
+      <p style={{ color: "#64748b", marginBottom: 32, fontSize: "0.9rem" }}>View and manage your event tickets</p>
 
       {tickets.length === 0 ? (
-        <p className="empty">You haven't booked any tickets yet.</p>
+        <div className="m2-empty">
+          <div className="m2-empty-icon">
+            <svg width="56" height="56" viewBox="0 0 48 48" fill="none">
+              <rect x="6" y="10" width="36" height="28" rx="4" stroke="#334155" strokeWidth="2" strokeDasharray="4 4" />
+              <path d="M6 18L18 26L30 18" stroke="#475569" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
+          <h3>No bookings yet</h3>
+          <p>Browse events and book your first ticket</p>
+        </div>
       ) : (
         <div className="bookings-list">
-          {tickets.map((ticket) => (
-            <div key={ticket.id} className="booking-card">
+          {tickets.map((ticket, i) => (
+            <div
+              key={ticket.id}
+              className="booking-card"
+              style={{ animation: `m2CardIn 0.5s cubic-bezier(0.16,1,0.3,1) ${i * 0.06}s both` }}
+            >
               <div className="booking-info">
                 <h3>{ticket.eventTitle}</h3>
-                <p><strong>Location:</strong> {ticket.eventLocation}</p>
-                <p><strong>Dates:</strong> {ticket.eventStartDate} - {ticket.eventEndDate}</p>
-                <p><strong>Quantity:</strong> {ticket.quantity}</p>
-                <p><strong>Booked on:</strong> {ticket.bookingDate}</p>
-                <span className={`status-badge ${ticket.scanned ? "status-approved" : "status-pending"}`}>
-                  {ticket.scanned ? "Attended" : "Not yet attended"}
+                <p>{ticket.eventLocation} &middot; {ticket.eventStartDate} — {ticket.eventEndDate}</p>
+                <p style={{ marginTop: 4 }}>
+                  Qty: {ticket.quantity} &middot; Booked: {ticket.bookingDate}
+                </p>
+                <span className={`status-badge ${ticket.scanned ? "status-approved" : "status-pending"}`} style={{ marginTop: 8 }}>
+                  {ticket.scanned ? "Attended" : "Pending"}
                 </span>
               </div>
               <div className="booking-actions">
-                <button onClick={() => downloadQR(ticket.id)} className="btn btn-primary">
+                <button onClick={() => downloadQR(ticket.id)} className="btn btn-primary" style={{ borderRadius: 12 }}>
                   Download QR
                 </button>
               </div>
