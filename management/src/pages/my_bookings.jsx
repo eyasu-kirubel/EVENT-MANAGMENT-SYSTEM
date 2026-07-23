@@ -26,7 +26,7 @@ export default function MyBookingsPage() {
     link.href = `http://localhost:3000/api/tickets/${ticketId}/qr`;
     link.target = "_blank";
     // Fetch the SVG via the API
-    fetch(`http://localhost:3000/api/tickets/${ticketId}/qr`, {
+    fetch(`/api/tickets/${ticketId}/qr`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.text())

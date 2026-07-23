@@ -55,6 +55,16 @@ export default function Navbar() {
             <>
               <Link to="/organizer" onClick={() => setMenuOpen(false)}>Dashboard</Link>
               <Link to="/organizer/create" onClick={() => setMenuOpen(false)}>Create Event</Link>
+              <Link to="/organizer/scanner" onClick={() => setMenuOpen(false)}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <rect x="1" y="1" width="5" height="5" rx="0.5" stroke="currentColor" strokeWidth="1.3" />
+                  <rect x="10" y="1" width="5" height="5" rx="0.5" stroke="currentColor" strokeWidth="1.3" />
+                  <rect x="1" y="10" width="5" height="5" rx="0.5" stroke="currentColor" strokeWidth="1.3" />
+                  <rect x="10" y="10" width="3" height="3" rx="0.5" stroke="currentColor" strokeWidth="1.3" />
+                  <rect x="14" y="14" width="1" height="1" rx="0.5" fill="currentColor" />
+                </svg>
+                Scanner
+              </Link>
             </>
           )}
 
