@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 
-export default function LoginPage() {
-  const [form, setForm] = useState({ phonenumber: "", password: "" });
+export default function RegisterPage() {
+  const [form, setForm] = useState({ fullname: "", phonenumber: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -10,13 +10,13 @@ export default function LoginPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    if (!form.phonenumber || !form.password) {
+    if (!form.fullname || !form.phonenumber || !form.password) {
       setError("All fields are required");
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/login", {
+      const res = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
@@ -24,13 +24,7 @@ export default function LoginPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       localStorage.setItem("user", JSON.stringify(data.user));
-      if (data.user.role === "admin") {
-        navigate("/admin");
-      } else if (data.user.role === "organizer") {
-        navigate("/organizer");
-      } else {
-        navigate("/events");
-      }
+      navigate("/events");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -50,13 +44,23 @@ export default function LoginPage() {
 
       <div style={styles.card}>
         <div style={styles.cardHeader}>
-          <h1 style={styles.title}>Welcome Back</h1>
-          <p style={styles.subtitle}>Log in to your EventHub account</p>
+          <h1 style={styles.title}>Create Account</h1>
+          <p style={styles.subtitle}>Join EventHub and discover amazing events</p>
         </div>
 
         {error && <div style={styles.error}>{error}</div>}
 
         <form onSubmit={handleSubmit} style={styles.form}>
+          <div style={styles.field}>
+            <label style={styles.label}>Full Name</label>
+            <input
+              type="text"
+              placeholder="Enter your full name"
+              value={form.fullname}
+              onChange={(e) => setForm({ ...form, fullname: e.target.value })}
+              style={styles.input}
+            />
+          </div>
           <div style={styles.field}>
             <label style={styles.label}>Phone Number</label>
             <input
@@ -71,37 +75,19 @@ export default function LoginPage() {
             <label style={styles.label}>Password</label>
             <input
               type="password"
-              placeholder="Enter your password"
+              placeholder="Create a password"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               style={styles.input}
             />
           </div>
           <button type="submit" style={styles.btn} disabled={loading}>
-            {loading ? "Logging in..." : "Log In"}
+            {loading ? "Creating Account..." : "Sign Up"}
           </button>
         </form>
 
-        <div style={styles.divider}>
-          <span style={styles.dividerLine} />
-          <span style={styles.dividerText}>Demo Accounts</span>
-          <span style={styles.dividerLine} />
-        </div>
-
-        <div style={styles.demoAccounts}>
-          <button onClick={() => { setForm({ phonenumber: "0911000000", password: "admin123" }); }} style={styles.demoBtn}>
-            👑 Admin
-          </button>
-          <button onClick={() => { setForm({ phonenumber: "0911111111", password: "org123" }); }} style={styles.demoBtn}>
-            📋 Organizer
-          </button>
-          <button onClick={() => { setForm({ phonenumber: "0911222222", password: "user123" }); }} style={styles.demoBtn}>
-            👤 Customer
-          </button>
-        </div>
-
         <p style={styles.footer}>
-          Don't have an account? <Link to="/register" style={styles.link}>Sign Up</Link>
+          Already have an account? <Link to="/login" style={styles.link}>Log In</Link>
         </p>
       </div>
     </div>
@@ -123,11 +109,6 @@ const styles = {
   label: { fontSize: '13px', fontWeight: 500, color: 'var(--text-muted)' },
   input: { background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 16px', color: 'white', fontSize: '15px', outline: 'none', transition: 'border-color 0.2s' },
   btn: { background: 'linear-gradient(135deg, var(--primary), var(--primary-dark))', color: 'white', border: 'none', padding: '14px', borderRadius: '10px', fontSize: '16px', fontWeight: 600, cursor: 'pointer', marginTop: 8, transition: 'opacity 0.2s' },
-  divider: { display: 'flex', alignItems: 'center', gap: 12, margin: '24px 0 16px' },
-  dividerLine: { flex: 1, height: 1, background: 'var(--border)' },
-  dividerText: { fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' },
-  demoAccounts: { display: 'flex', gap: 8 },
-  demoBtn: { flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '8px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer', transition: 'background 0.2s' },
   footer: { textAlign: 'center', marginTop: 24, fontSize: '14px', color: 'var(--text-muted)' },
   link: { color: 'var(--primary-light)', fontWeight: 500 },
 };
