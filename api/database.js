@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS booked_tickets (
     quantity INTEGER DEFAULT 1,
     qrCode TEXT,
     bookingDate TEXT,
+    scanned INTEGER DEFAULT 0,
+    scannedAt TEXT,
 
     FOREIGN KEY (userId)
         REFERENCES users(id)
@@ -60,6 +62,12 @@ CREATE TABLE IF NOT EXISTS booked_tickets (
         ON DELETE CASCADE
 );
 `);
+
+try { db.exec(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'`); } catch (e) {}
+try { db.exec(`ALTER TABLE booked_tickets ADD COLUMN scanned INTEGER DEFAULT 0`); } catch (e) {}
+try { db.exec(`ALTER TABLE booked_tickets ADD COLUMN scannedAt TEXT`); } catch (e) {}
+
+module.exports = db;
 
 // Users table
 // This table keeps information about people who register in the system.
