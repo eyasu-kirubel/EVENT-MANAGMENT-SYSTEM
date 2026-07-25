@@ -21,6 +21,16 @@ export default function BookingsManager() {
     } catch {}
   };
 
+  const handleDownloadQR = (b) => {
+    if (!b.qrcode) return;
+    const link = document.createElement("a");
+    link.href = b.qrcode;
+    link.download = `ticket-${b.eventTitle.replace(/\s+/g, "-")}-#${b.id}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handlePrint = (b) => {
     const win = window.open("", "_blank");
     win.document.write(`
@@ -147,6 +157,9 @@ export default function BookingsManager() {
                 <span style={styles.bookingId}>#{b.id}</span>
                 <div style={styles.ticketActions}>
                   {b.status === "confirmed" && (
+                    <button onClick={() => handleDownloadQR(b)} style={styles.downloadBtn}>⬇ Save</button>
+                  )}
+                  {b.status === "confirmed" && (
                     <button onClick={() => handlePrint(b)} style={styles.printBtn}>🖨 Print</button>
                   )}
                   {b.status === "confirmed" && (
@@ -206,6 +219,9 @@ export default function BookingsManager() {
                   <td style={styles.td}>
                     <div style={styles.actions}>
                       {b.status === "confirmed" && (
+                        <button onClick={() => handleDownloadQR(b)} style={styles.downloadBtn}>⬇</button>
+                      )}
+                      {b.status === "confirmed" && (
                         <button onClick={() => handlePrint(b)} style={styles.printBtn}>🖨</button>
                       )}
                       {b.status === "confirmed" && (
@@ -257,6 +273,7 @@ const styles = {
 
   statusBadge: { padding: '3px 10px', borderRadius: 20, fontSize: '11px', fontWeight: 600, textTransform: 'capitalize' },
   printBtn: { background: 'rgba(59,130,246,0.15)', border: 'none', color: '#93c5fd', padding: '5px 12px', borderRadius: 6, fontSize: '12px', cursor: 'pointer' },
+  downloadBtn: { background: 'rgba(16,185,129,0.15)', border: 'none', color: '#6ee7b7', padding: '5px 12px', borderRadius: 6, fontSize: '12px', cursor: 'pointer', fontWeight: 600 },
   cancelBtn: { background: 'rgba(239,68,68,0.15)', border: 'none', color: '#fca5a5', padding: '5px 12px', borderRadius: 6, fontSize: '12px', cursor: 'pointer' },
 
   /* TABLE VIEW */

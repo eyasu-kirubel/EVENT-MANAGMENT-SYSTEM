@@ -17,7 +17,7 @@ function App() {
       <Route path="/events" element={<EventsPage />} />
       <Route path="/admin" element={<AdminPanel />} />
       <Route path="/organizer" element={<OrganizerPanel />} />
-      <Route path="/scan" element={<ScanPage />} />
+      <Route path="/scan/:bookingId" element={<ScanPage />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );
