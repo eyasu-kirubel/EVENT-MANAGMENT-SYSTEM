@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { api } from "../../utils/api";
 
 export default function ScannerPage() {
@@ -7,7 +7,32 @@ export default function ScannerPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [selectedEvent, setSelectedEvent] = useState("");
   const inputRef = useRef(null);
+
+  useEffect(() => {
+    loadEvents();
+  }, []);
+
+  useEffect(() => {
+    if (selectedEvent) loadStats();
+  }, [selectedEvent, history]);
+
+  async function loadEvents() {
+    try {
+      const data = await api.get("/events/organizer/my-events");
+      setEvents(data.filter((e) => e.status === "Approved"));
+    } catch {}
+  }
+
+  async function loadStats() {
+    try {
+      const data = await api.get(`/attendance/stats/${selectedEvent}`);
+      setStats(data);
+    } catch {}
+  }
 
   async function handleScan(e) {
     e.preventDefault();
@@ -22,19 +47,7 @@ export default function ScannerPage() {
       setHistory((prev) => [{ ...data, id: Date.now() }, ...prev].slice(0, 20));
       setQrInput("");
     } catch (err) {
-      try {
-        const errData = JSON.parse(err.message);
-        setError(err.message);
-      } catch {
-        setError(err.message);
-      }
-      // Try to parse the error for duplicate scanning info
-      try {
-        const parsed = JSON.parse(qrInput.trim());
-        if (parsed.userId && parsed.eventId) {
-          // Show partial info even on error
-        }
-      } catch {}
+      setError(err.message);
     } finally {
       setLoading(false);
       inputRef.current?.focus();
@@ -60,6 +73,39 @@ export default function ScannerPage() {
           </div>
         </div>
       </div>
+
+      {/* Event Selector */}
+      <div className="scan-event-selector">
+        <label>Select Event</label>
+        <select value={selectedEvent} onChange={(e) => setSelectedEvent(e.target.value)}>
+          <option value="">-- Choose an event --</option>
+          {events.map((ev) => (
+            <option key={ev.id} value={ev.id}>{ev.title}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Stats */}
+      {stats && (
+        <div className="scan-stats-grid">
+          <div className="scan-stat-card">
+            <span className="scan-stat-number">{stats.capacity}</span>
+            <span className="scan-stat-label">Capacity</span>
+          </div>
+          <div className="scan-stat-card">
+            <span className="scan-stat-number">{stats.totalBooked}</span>
+            <span className="scan-stat-label">Booked</span>
+          </div>
+          <div className="scan-stat-card checked">
+            <span className="scan-stat-number">{stats.totalScanned}</span>
+            <span className="scan-stat-label">Checked In</span>
+          </div>
+          <div className="scan-stat-card remaining">
+            <span className="scan-stat-number">{stats.remaining}</span>
+            <span className="scan-stat-label">Remaining</span>
+          </div>
+        </div>
+      )}
 
       {/* Scanner Input */}
       <div className="scan-input-section">
@@ -129,23 +175,23 @@ export default function ScannerPage() {
             <div className="scan-result-details">
               <div className="scan-result-detail">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <circle cx="7" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.2" />
-                  <path d="M2 13C2 10 4.2 8 7 8C9.8 8 12 10 12 13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                  <rect x="1.5" y="1.5" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.2" />
+                  <path d="M5 5.5L6.5 7L9.5 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
                 <div>
-                  <span className="scan-detail-label">Attendee</span>
-                  <span className="scan-detail-value">{result.attendee?.fullname}</span>
+                  <span className="scan-detail-label">User ID</span>
+                  <span className="scan-detail-value">#{result.userId}</span>
                 </div>
               </div>
 
               <div className="scan-result-detail">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <rect x="2" y="1" width="10" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-                  <circle cx="7" cy="11" r="0.8" fill="currentColor" />
+                  <rect x="1.5" y="4" width="11" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+                  <path d="M1.5 6.5H12.5" stroke="currentColor" strokeWidth="1.2" />
                 </svg>
                 <div>
-                  <span className="scan-detail-label">Phone</span>
-                  <span className="scan-detail-value">{result.attendee?.phonenumber}</span>
+                  <span className="scan-detail-label">Ticket</span>
+                  <span className="scan-detail-value">#{result.ticketId} &middot; Qty: {result.quantity}</span>
                 </div>
               </div>
 
@@ -169,18 +215,7 @@ export default function ScannerPage() {
                 </svg>
                 <div>
                   <span className="scan-detail-label">Date</span>
-                  <span className="scan-detail-value">{result.event?.startDate} — {result.event?.endDate}</span>
-                </div>
-              </div>
-
-              <div className="scan-result-detail">
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <rect x="1.5" y="4" width="11" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-                  <path d="M1.5 6.5H12.5" stroke="currentColor" strokeWidth="1.2" />
-                </svg>
-                <div>
-                  <span className="scan-detail-label">Ticket</span>
-                  <span className="scan-detail-value">#{result.ticketId} &middot; Qty: {result.quantity}</span>
+                  <span className="scan-detail-value">{result.event?.startDate}</span>
                 </div>
               </div>
             </div>
@@ -242,7 +277,7 @@ export default function ScannerPage() {
                   )}
                 </div>
                 <div className="scan-history-info">
-                  <span className="scan-history-name">{h.attendee?.fullname}</span>
+                  <span className="scan-history-name">Ticket #{h.ticketId}</span>
                   <span className="scan-history-event">{h.event?.title}</span>
                 </div>
                 <span className={`scan-history-badge ${h.status}`}>

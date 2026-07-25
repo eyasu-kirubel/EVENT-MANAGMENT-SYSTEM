@@ -12,7 +12,8 @@ async function request(endpoint, options = {}) {
   };
 
   const res = await fetch(`${API_BASE}${endpoint}`, config);
-  const data = await res.json();
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : {};
 
   if (!res.ok) {
     throw new Error(data.error || "Something went wrong");

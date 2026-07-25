@@ -19,6 +19,10 @@ import "./App.css";
 function App() {
   return (
     <AuthProvider>
+      <div className="app-bg-video-wrap">
+        <video className="app-bg-video" autoPlay muted loop playsInline src="/bg-video.mp4" />
+        <div className="app-bg-overlay" />
+      </div>
       <Navbar />
       <main className="container">
         <Routes>

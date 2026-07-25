@@ -1,6 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { api } from "../utils/api";
 
 function getPasswordStrength(pw) {
   let score = 0;
@@ -30,15 +31,36 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [globalError, setGlobalError] = useState("");
   const [focusedField, setFocusedField] = useState("");
+  const [phoneStatus, setPhoneStatus] = useState(""); // "checking" | "available" | "taken"
+  const phoneTimer = useRef(null);
   const { register } = useAuth();
   const navigate = useNavigate();
 
   const pwStrength = useMemo(() => getPasswordStrength(form.password), [form.password]);
 
+  useEffect(() => {
+    if (!form.phonenumber || !/^0[79]\d{8}$/.test(form.phonenumber)) {
+      setPhoneStatus("");
+      return;
+    }
+    setPhoneStatus("checking");
+    clearTimeout(phoneTimer.current);
+    phoneTimer.current = setTimeout(async () => {
+      try {
+        const data = await api.get(`/auth/check-phone/${form.phonenumber}`);
+        setPhoneStatus(data.exists ? "taken" : "available");
+      } catch {
+        setPhoneStatus("");
+      }
+    }, 500);
+    return () => clearTimeout(phoneTimer.current);
+  }, [form.phonenumber]);
+
   function handleChange(e) {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
     if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
+    if (name === "phonenumber") setPhoneStatus("");
   }
 
   function selectRole(role) {
@@ -56,6 +78,19 @@ export default function RegisterPage() {
       if (!form.phonenumber.trim()) errs.phonenumber = "Phone number is required";
       else if (!/^0[79]\d{8}$/.test(form.phonenumber.trim()))
         errs.phonenumber = "Enter a valid Ethiopian phone (09XXXXXXXX or 07XXXXXXXX)";
+      else if (phoneStatus === "taken") errs.phonenumber = "This phone number is already registered";
+      else if (phoneStatus === "checking") errs.phonenumber = "Still checking phone number...";
+      if (form.birthDate) {
+        const bday = new Date(form.birthDate);
+        const today = new Date();
+        if (bday > today) errs.birthDate = "Date of birth cannot be in the future";
+        else {
+          let age = today.getFullYear() - bday.getFullYear();
+          const m = today.getMonth() - bday.getMonth();
+          if (m < 0 || (m === 0 && today.getDate() < bday.getDate())) age--;
+          if (age < 13) errs.birthDate = "You must be at least 13 years old";
+        }
+      }
     }
     if (s === 3) {
       if (!form.password) errs.password = "Password is required";
@@ -264,6 +299,9 @@ export default function RegisterPage() {
                       onBlur={() => setFocusedField("")}
                     />
                     <label className="reg2-floating">09XXXXXXXX</label>
+                    {phoneStatus === "checking" && <span className="reg2-phone-status checking">Checking...</span>}
+                    {phoneStatus === "available" && <span className="reg2-phone-status available">Available</span>}
+                    {phoneStatus === "taken" && <span className="reg2-phone-status taken">Already registered</span>}
                   </div>
                   {errors.phonenumber && <span className="reg2-field-err">{errors.phonenumber}</span>}
                 </div>
@@ -287,6 +325,7 @@ export default function RegisterPage() {
                       onBlur={() => setFocusedField("")}
                     />
                   </div>
+                  {errors.birthDate && <span className="reg2-field-err">{errors.birthDate}</span>}
                 </div>
 
                 <div className="reg2-btn-row">

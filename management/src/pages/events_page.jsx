@@ -19,6 +19,8 @@ export default function EventsPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   useEffect(() => {
     loadEvents();
@@ -41,7 +43,9 @@ export default function EventsPage() {
       !search ||
       e.title.toLowerCase().includes(search.toLowerCase()) ||
       e.location.toLowerCase().includes(search.toLowerCase());
-    return matchCategory && matchSearch;
+    const matchDateFrom = !dateFrom || e.startDate >= dateFrom;
+    const matchDateTo = !dateTo || e.startDate <= dateTo;
+    return matchCategory && matchSearch && matchDateFrom && matchDateTo;
   });
 
   return (
@@ -96,13 +100,38 @@ export default function EventsPage() {
             </button>
           ))}
         </div>
+
+        <div className="m2-date-filters">
+          <div className="m2-date-field">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="1" y="2.5" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.3"/>
+              <path d="M1 6.5h14" stroke="currentColor" strokeWidth="1.3"/>
+              <path d="M5 1v2M11 1v2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          </div>
+          <span className="m2-date-sep">to</span>
+          <div className="m2-date-field">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="1" y="2.5" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.3"/>
+              <path d="M1 6.5h14" stroke="currentColor" strokeWidth="1.3"/>
+              <path d="M5 1v2M11 1v2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} min={dateFrom || ""} />
+          </div>
+          {(dateFrom || dateTo) && (
+            <button className="m2-date-clear" onClick={() => { setDateFrom(""); setDateTo(""); }}>
+              Clear dates
+            </button>
+          )}
+        </div>
       </section>
 
       {/* Results */}
       <section className="m2-results">
         <div className="m2-results-header">
           <h2>
-            {filter || search ? "Filtered Results" : "All Events"}
+            {filter || search || dateFrom || dateTo ? "Filtered Results" : "All Events"}
           </h2>
           <span className="m2-results-count">{filtered.length} event{filtered.length !== 1 ? "s" : ""}</span>
         </div>
@@ -133,8 +162,8 @@ export default function EventsPage() {
             </div>
             <h3>No events found</h3>
             <p>Try adjusting your search or filter to find what you're looking for</p>
-            {(search || filter) && (
-              <button className="m2-btn-reset" onClick={() => { setSearch(""); setFilter(""); }}>
+            {(search || filter || dateFrom || dateTo) && (
+              <button className="m2-btn-reset" onClick={() => { setSearch(""); setFilter(""); setDateFrom(""); setDateTo(""); }}>
                 Clear Filters
               </button>
             )}
