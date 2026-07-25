@@ -10,6 +10,7 @@ import MyBookingsPage from "./pages/my_bookings";
 import OrganizerDashboard from "./pages/organizer/dashboard";
 import CreateEventPage from "./pages/organizer/create_event";
 import ManageEventsPage from "./pages/organizer/manage_events";
+import ScannerPage from "./pages/organizer/scanner";
 import AdminDashboard from "./pages/admin/dashboard";
 import PendingEventsPage from "./pages/admin/pending_events";
 import ManageUsersPage from "./pages/admin/manage_users";
@@ -18,6 +19,10 @@ import "./App.css";
 function App() {
   return (
     <AuthProvider>
+      <div className="app-bg-video-wrap">
+        <video className="app-bg-video" autoPlay muted loop playsInline src="/bg-video.mp4" />
+        <div className="app-bg-overlay" />
+      </div>
       <Navbar />
       <main className="container">
         <Routes>
@@ -46,6 +51,11 @@ function App() {
           <Route path="/organizer/events" element={
             <ProtectedRoute roles={["organizer"]}>
               <ManageEventsPage />
+            </ProtectedRoute>
+          } />
+          <Route path="/organizer/scanner" element={
+            <ProtectedRoute roles={["organizer"]}>
+              <ScannerPage />
             </ProtectedRoute>
           } />
 
