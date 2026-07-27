@@ -15,6 +15,19 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT DEFAULT 'user'
 );
 
+CREATE TABLE IF NOT EXISTS organizers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fullname TEXT NOT NULL,
+    phonenumber TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    birthDate TEXT,
+    orgName TEXT DEFAULT '',
+    email TEXT DEFAULT '',
+    description TEXT DEFAULT '',
+    logo TEXT DEFAULT '',
+    createdAt TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     photo TEXT,
@@ -28,19 +41,7 @@ CREATE TABLE IF NOT EXISTS events (
     endDate TEXT NOT NULL,
     status TEXT DEFAULT 'Pending',
     organizerId INTEGER NOT NULL,
-    FOREIGN KEY (organizerId) REFERENCES users(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS organizers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId INTEGER UNIQUE NOT NULL,
-    orgName TEXT NOT NULL,
-    phone TEXT,
-    email TEXT,
-    description TEXT,
-    logo TEXT,
-    createdAt TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (organizerId) REFERENCES organizers(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS booked_tickets (

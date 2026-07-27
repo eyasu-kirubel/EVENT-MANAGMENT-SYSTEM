@@ -16,11 +16,11 @@ function authenticate(req, res, next) {
   if (!auth || !auth.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Not authenticated" });
   }
-  const user = tokens.get(auth.slice(7));
-  if (!user) {
+  const data = tokens.get(auth.slice(7));
+  if (!data) {
     return res.status(401).json({ error: "Invalid token" });
   }
-  req.user = user;
+  req.user = data;
   next();
 }
 
@@ -42,12 +42,15 @@ function getEventAttendeeCount(eventId) {
   return row.total;
 }
 
-// ── Auth ──
+// ── Auth: Check Phone ──
 
 server.get("/auth/check-phone/:phonenumber", (req, res) => {
-  const existing = db.prepare("SELECT id FROM users WHERE phonenumber = ?").get(req.params.phonenumber);
-  res.json({ exists: !!existing });
+  const inUsers = db.prepare("SELECT id FROM users WHERE phonenumber = ?").get(req.params.phonenumber);
+  const inOrgs = db.prepare("SELECT id FROM organizers WHERE phonenumber = ?").get(req.params.phonenumber);
+  res.json({ exists: !!(inUsers || inOrgs) });
 });
+
+// ── Auth: Register ──
 
 server.post("/auth/register", (req, res) => {
   const { fullname, phonenumber, password, birthDate, role } = req.body;
@@ -60,6 +63,23 @@ server.post("/auth/register", (req, res) => {
   }
 
   const userRole = role === "organizer" ? "organizer" : "user";
+
+  if (userRole === "organizer") {
+    const existing = db.prepare("SELECT id FROM organizers WHERE phonenumber = ?").get(phonenumber);
+    if (existing) {
+      return res.status(409).json({ error: "Phone number is already registered." });
+    }
+    const hashed = hashPassword(password);
+    const result = db.prepare(
+      "INSERT INTO organizers (fullname, phonenumber, password, birthDate) VALUES (?, ?, ?, ?)"
+    ).run(fullname, phonenumber, hashed, birthDate || null);
+
+    const user = { id: result.lastInsertRowid, fullname, phonenumber, role: "organizer" };
+    const token = generateToken();
+    tokens.set(token, user);
+    return res.status(201).json({ token, user });
+  }
+
   const existing = db.prepare("SELECT id FROM users WHERE phonenumber = ?").get(phonenumber);
   if (existing) {
     return res.status(409).json({ error: "Phone number is already registered." });
@@ -68,19 +88,16 @@ server.post("/auth/register", (req, res) => {
   const hashed = hashPassword(password);
   const result = db.prepare(
     "INSERT INTO users (fullname, phonenumber, password, birthDate, role) VALUES (?, ?, ?, ?, ?)"
-  ).run(fullname, phonenumber, hashed, birthDate || null, userRole);
+  ).run(fullname, phonenumber, hashed, birthDate || null, "user");
 
-  if (userRole === "organizer") {
-    db.prepare("INSERT INTO organizers (userId, orgName, phone, email, description, logo) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(result.lastInsertRowid, fullname, phonenumber, "", "", "");
-  }
-
-  const user = { id: result.lastInsertRowid, fullname, phonenumber, role: userRole };
+  const user = { id: result.lastInsertRowid, fullname, phonenumber, role: "user" };
   const token = generateToken();
   tokens.set(token, user);
 
   res.status(201).json({ token, user });
 });
+
+// ── Auth: Login ──
 
 server.post("/auth/login", (req, res) => {
   const { phonenumber, password } = req.body;
@@ -89,16 +106,23 @@ server.post("/auth/login", (req, res) => {
     return res.status(400).json({ error: "phonenumber and password are required." });
   }
 
-  const user = db.prepare("SELECT * FROM users WHERE phonenumber = ?").get(phonenumber);
-  if (!user || !verifyPassword(password, user.password)) {
-    return res.status(401).json({ error: "Invalid phone number or password." });
+  const userRow = db.prepare("SELECT * FROM users WHERE phonenumber = ?").get(phonenumber);
+  if (userRow && verifyPassword(password, userRow.password)) {
+    const token = generateToken();
+    const userData = { id: userRow.id, fullname: userRow.fullname, phonenumber: userRow.phonenumber, role: userRow.role };
+    tokens.set(token, userData);
+    return res.json({ token, user: userData });
   }
 
-  const token = generateToken();
-  const userData = { id: user.id, fullname: user.fullname, phonenumber: user.phonenumber, role: user.role };
-  tokens.set(token, userData);
+  const orgRow = db.prepare("SELECT * FROM organizers WHERE phonenumber = ?").get(phonenumber);
+  if (orgRow && verifyPassword(password, orgRow.password)) {
+    const token = generateToken();
+    const userData = { id: orgRow.id, fullname: orgRow.fullname, phonenumber: orgRow.phonenumber, role: "organizer" };
+    tokens.set(token, userData);
+    return res.json({ token, user: userData });
+  }
 
-  res.json({ token, user: userData });
+  return res.status(401).json({ error: "Invalid phone number or password." });
 });
 
 // ── Events (public) ──
@@ -114,7 +138,7 @@ server.get("/events/:id", (req, res) => {
     return res.status(404).json({ error: "Event not found." });
   }
 
-  const organizer = db.prepare("SELECT fullname FROM users WHERE id = ?").get(event.organizerId);
+  const organizer = db.prepare("SELECT fullname FROM organizers WHERE id = ?").get(event.organizerId);
   const ticketsSold = getEventAttendeeCount(event.id);
 
   res.json({
@@ -318,62 +342,43 @@ server.post("/attendance/scan", authenticate, requireRole("organizer"), (req, re
 // ── Organizer Profile ──
 
 server.get("/organizer/profile", authenticate, requireRole("organizer"), (req, res) => {
-  const profile = db.prepare("SELECT * FROM organizers WHERE userId = ?").get(req.user.id);
-  if (!profile) return res.status(404).json({ error: "Profile not found." });
-  res.json(profile);
+  const org = db.prepare("SELECT id, fullname, phonenumber, orgName, email, description, logo, createdAt FROM organizers WHERE id = ?").get(req.user.id);
+  if (!org) return res.status(404).json({ error: "Profile not found." });
+  res.json(org);
 });
 
-server.post("/organizer/profile", authenticate, requireRole("organizer"), (req, res) => {
-  const { orgName, phone, email, description, logo } = req.body;
-  if (!orgName) return res.status(400).json({ error: "Organization name is required." });
-
-  const existing = db.prepare("SELECT id FROM organizers WHERE userId = ?").get(req.user.id);
-  if (existing) {
-    db.prepare("UPDATE organizers SET orgName=?, phone=?, email=?, description=?, logo=? WHERE userId=?")
-      .run(orgName, phone || "", email || "", description || "", logo || "", req.user.id);
-    return res.json({ message: "Profile updated.", id: existing.id });
-  }
-
-  const result = db.prepare("INSERT INTO organizers (userId, orgName, phone, email, description, logo) VALUES (?,?,?,?,?,?)")
-    .run(req.user.id, orgName, phone || "", email || "", description || "", logo || "");
-  res.status(201).json({ message: "Profile created.", id: result.lastInsertRowid });
-});
-
-server.delete("/organizer/profile", authenticate, requireRole("organizer"), (req, res) => {
-  db.prepare("DELETE FROM organizers WHERE userId = ?").run(req.user.id);
-  res.json({ message: "Profile deleted." });
+server.put("/organizer/profile", authenticate, requireRole("organizer"), (req, res) => {
+  const { orgName, email, description, logo } = req.body;
+  db.prepare("UPDATE organizers SET orgName=?, email=?, description=?, logo=? WHERE id=?")
+    .run(orgName || "", email || "", description || "", logo || "", req.user.id);
+  res.json({ message: "Profile updated." });
 });
 
 // ── Admin: Organizer Management ──
 
 server.get("/admin/organizers", authenticate, requireRole("admin"), (req, res) => {
   const orgs = db.prepare(
-    `SELECT o.id, o.orgName, o.phone, o.email, o.description, o.logo, o.createdAt,
-            u.fullname AS ownerName, u.phonenumber AS ownerPhone
-     FROM organizers o
-     JOIN users u ON u.id = o.userId
-     ORDER BY o.createdAt DESC`
+    "SELECT id, fullname, phonenumber, orgName, email, description, logo, createdAt FROM organizers ORDER BY createdAt DESC"
   ).all();
   res.json(orgs);
 });
 
 server.delete("/admin/organizers/:id", authenticate, requireRole("admin"), (req, res) => {
   db.prepare("DELETE FROM organizers WHERE id = ?").run(req.params.id);
-  res.json({ message: "Organizer profile deleted." });
+  res.json({ message: "Organizer deleted." });
 });
 
 // ── Admin ──
 
 server.get("/admin/stats", authenticate, requireRole("admin"), (req, res) => {
   const totalUsers = db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'user'").get().c;
-  const totalOrganizers = db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'organizer'").get().c;
-  const totalOrganizerProfiles = db.prepare("SELECT COUNT(*) AS c FROM organizers").get().c;
+  const totalOrganizers = db.prepare("SELECT COUNT(*) AS c FROM organizers").get().c;
   const totalEvents = db.prepare("SELECT COUNT(*) AS c FROM events").get().c;
   const pendingEvents = db.prepare("SELECT COUNT(*) AS c FROM events WHERE status = 'Pending'").get().c;
   const approvedEvents = db.prepare("SELECT COUNT(*) AS c FROM events WHERE status = 'Approved'").get().c;
   const totalTickets = db.prepare("SELECT COALESCE(SUM(quantity), 0) AS c FROM booked_tickets").get().c;
 
-  res.json({ totalUsers, totalOrganizers, totalOrganizerProfiles, totalEvents, pendingEvents, approvedEvents, totalTickets });
+  res.json({ totalUsers, totalOrganizers, totalEvents, pendingEvents, approvedEvents, totalTickets });
 });
 
 server.get("/admin/users", authenticate, requireRole("admin"), (req, res) => {
@@ -383,7 +388,7 @@ server.get("/admin/users", authenticate, requireRole("admin"), (req, res) => {
 
 server.put("/admin/users/:id/role", authenticate, requireRole("admin"), (req, res) => {
   const { role } = req.body;
-  if (!["user", "organizer", "admin"].includes(role)) {
+  if (!["user", "admin"].includes(role)) {
     return res.status(400).json({ error: "Invalid role." });
   }
   db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, req.params.id);
@@ -399,9 +404,9 @@ server.delete("/admin/users/:id", authenticate, requireRole("admin"), (req, res)
 server.get("/admin/events/pending", authenticate, requireRole("admin"), (req, res) => {
   const events = db.prepare(
     `SELECT e.id, e.title, e.category, e.location, e.startDate, e.endDate, e.capacity,
-            u.fullname AS organizerName
+            o.fullname AS organizerName
      FROM events e
-     JOIN users u ON u.id = e.organizerId
+     JOIN organizers o ON o.id = e.organizerId
      WHERE e.status = 'Pending'
      ORDER BY e.startDate ASC`
   ).all();
