@@ -1,5 +1,6 @@
 const { DatabaseSync } = require("node:sqlite");
 const path = require("path");
+const { hashPassword } = require("./utils/password");
 
 const db = new DatabaseSync(path.join(__dirname, "db.sqlite"));
 
@@ -12,20 +13,17 @@ CREATE TABLE IF NOT EXISTS users (
     phonenumber TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
     birthDate TEXT,
-    role TEXT DEFAULT 'user'
+    role TEXT DEFAULT 'user',
+    isOrganizer INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS organizers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    fullname TEXT NOT NULL,
-    phonenumber TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    birthDate TEXT,
-    orgName TEXT DEFAULT '',
-    email TEXT DEFAULT '',
-    description TEXT DEFAULT '',
-    logo TEXT DEFAULT '',
-    createdAt TEXT DEFAULT (datetime('now'))
+    userId INTEGER UNIQUE NOT NULL,
+    licenceNumber TEXT UNIQUE NOT NULL,
+    email TEXT NOT NULL,
+    createdAt TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -41,7 +39,7 @@ CREATE TABLE IF NOT EXISTS events (
     endDate TEXT NOT NULL,
     status TEXT DEFAULT 'Pending',
     organizerId INTEGER NOT NULL,
-    FOREIGN KEY (organizerId) REFERENCES organizers(id) ON DELETE CASCADE
+    FOREIGN KEY (organizerId) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS booked_tickets (
@@ -60,10 +58,9 @@ CREATE TABLE IF NOT EXISTS booked_tickets (
 
 const adminExists = db.prepare("SELECT id FROM users WHERE role = 'admin'").get();
 if (!adminExists) {
-  const { hashPassword } = require("./utils/password");
   db.prepare(
     "INSERT INTO users (fullname, phonenumber, password, role) VALUES (?, ?, ?, ?)"
   ).run("Admin", "0900000000", hashPassword("admin123"), "admin");
-}
 
+}
 module.exports = db;

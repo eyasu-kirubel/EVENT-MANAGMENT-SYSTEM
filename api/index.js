@@ -11,6 +11,36 @@ server.use(express.json({ limit: "10mb" }));
 
 const tokens = new Map();
 
+// ── Small transaction helper ──
+// node:sqlite has no built-in db.transaction(fn) like better-sqlite3 does,
+// so multi-step writes that must succeed or fail together (e.g. "insert a
+// user, then insert their organizer profile") are wrapped in BEGIN/COMMIT,
+// rolling back automatically if anything inside throws.
+function runInTransaction(fn) {
+  db.exec("BEGIN");
+  try {
+    const result = fn();
+    db.exec("COMMIT");
+    return result;
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
+
+// Shapes a "users" row into the safe object we hand back to the client and
+// store against a token. Centralized here so every place that issues a
+// token (register, login) stays in sync automatically.
+function toPublicUser(userRow) {
+  return {
+    id: userRow.id,
+    fullname: userRow.fullname,
+    phonenumber: userRow.phonenumber,
+    role: userRow.role,
+    isOrganizer: !!userRow.isOrganizer, // stored as 0/1 in SQLite, exposed as true/false over the API
+  };
+}
+
 function authenticate(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith("Bearer ")) {
@@ -24,6 +54,8 @@ function authenticate(req, res, next) {
   next();
 }
 
+// Unchanged — still checks req.user.role. Now only ever "user" or "admin",
+// since organizers also carry role = "user" under the new schema.
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
@@ -31,6 +63,22 @@ function requireRole(...roles) {
     }
     next();
   };
+}
+
+// NEW — replaces every old requireRole("organizer") check. Organizer
+// permissions are now driven by the isOrganizer flag on the user's own
+// account, not by a separate organizer role/login.
+//
+// req.user always comes from toPublicUser() (see register/login below),
+// which guarantees isOrganizer is a real boolean by the time it's stored
+// on a token — so this checks `!== true` rather than a truthy/falsy or
+// `!== 1` comparison, to make that guarantee explicit instead of relying
+// on JS's implicit coercion to keep working.
+function requireOrganizer(req, res, next) {
+  if (req.user.isOrganizer !== true) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  next();
 }
 
 function generateToken() {
@@ -43,18 +91,24 @@ function getEventAttendeeCount(eventId) {
 }
 
 // ── Auth: Check Phone ──
-
+// Only "users" holds phone numbers now — organizers no longer have their
+// own phonenumber column, so there's only ever one table to check.
 server.get("/auth/check-phone/:phonenumber", (req, res) => {
-  const inUsers = db.prepare("SELECT id FROM users WHERE phonenumber = ?").get(req.params.phonenumber);
-  const inOrgs = db.prepare("SELECT id FROM organizers WHERE phonenumber = ?").get(req.params.phonenumber);
-  res.json({ exists: !!(inUsers || inOrgs) });
+  const existing = db.prepare("SELECT id FROM users WHERE phonenumber = ?").get(req.params.phonenumber);
+  res.json({ exists: !!existing });
 });
 
 // ── Auth: Register ──
-
 server.post("/auth/register", (req, res) => {
-  const { fullname, phonenumber, password, birthDate, role } = req.body;
+  const { fullname, phonenumber, password, birthDate, licenceNumber, email } = req.body;
 
+  // Accept either the new `isOrganizer: true` flag or the old
+  // `role: "organizer"` shape, so an existing frontend that still sends
+  // role:"organizer" keeps working without changes (requirement #5),
+  // while internally we only ever use the isOrganizer flag from here on.
+  const isOrganizer = req.body.isOrganizer === true || req.body.role === "organizer";
+
+  // 1. Fields required for EVERYONE.
   if (!fullname || !phonenumber || !password) {
     return res.status(400).json({ error: "fullname, phonenumber and password are required." });
   }
@@ -62,43 +116,81 @@ server.post("/auth/register", (req, res) => {
     return res.status(400).json({ error: "password must be at least 6 characters." });
   }
 
-  const userRole = role === "organizer" ? "organizer" : "user";
-
-  if (userRole === "organizer") {
-    const existing = db.prepare("SELECT id FROM organizers WHERE phonenumber = ?").get(phonenumber);
-    if (existing) {
-      return res.status(409).json({ error: "Phone number is already registered." });
-    }
-    const hashed = hashPassword(password);
-    const result = db.prepare(
-      "INSERT INTO organizers (fullname, phonenumber, password, birthDate) VALUES (?, ?, ?, ?)"
-    ).run(fullname, phonenumber, hashed, birthDate || null);
-
-    const user = { id: result.lastInsertRowid, fullname, phonenumber, role: "organizer" };
-    const token = generateToken();
-    tokens.set(token, user);
-    return res.status(201).json({ token, user });
+  // 2. Fields required ONLY for organizers (requirement #1).
+  if (isOrganizer && (!licenceNumber || !email)) {
+    return res.status(400).json({ error: "licenceNumber and email are required to register as an organizer." });
   }
 
-  const existing = db.prepare("SELECT id FROM users WHERE phonenumber = ?").get(phonenumber);
-  if (existing) {
+  // 3. Single uniqueness source: the users table's phonenumber column.
+  const existingUser = db.prepare("SELECT id FROM users WHERE phonenumber = ?").get(phonenumber);
+  if (existingUser) {
     return res.status(409).json({ error: "Phone number is already registered." });
   }
 
+  // 4. For organizers, licenceNumber must also be unique — checked ahead of
+  // time so we can return a clean 409 instead of a raw SQLite error.
+  if (isOrganizer) {
+    const existingLicence = db.prepare("SELECT id FROM organizers WHERE licenceNumber = ?").get(licenceNumber);
+    if (existingLicence) {
+      return res.status(409).json({ error: "This licence number is already registered." });
+    }
+  }
+
   const hashed = hashPassword(password);
-  const result = db.prepare(
-    "INSERT INTO users (fullname, phonenumber, password, birthDate, role) VALUES (?, ?, ?, ?, ?)"
-  ).run(fullname, phonenumber, hashed, birthDate || null, "user");
 
-  const user = { id: result.lastInsertRowid, fullname, phonenumber, role: "user" };
-  const token = generateToken();
-  tokens.set(token, user);
+  try {
+    // 5. Insert into users, then (only if isOrganizer) insert into
+    // organizers using the id we just generated. Wrapped in a transaction
+    // so that if the organizers insert fails for any reason (e.g. a
+    // licenceNumber collision from a simultaneous request), the users
+    // insert is rolled back too — we never want a "ghost" user row with
+    // isOrganizer = 1 but no matching organizer profile.
+    const userId = runInTransaction(() => {
+      // role is ALWAYS "user" here — organizers are not a separate role,
+      // per requirement #2. isOrganizer is what carries the distinction.
+      const result = db
+        .prepare(
+          "INSERT INTO users (fullname, phonenumber, password, birthDate, role, isOrganizer) VALUES (?, ?, ?, ?, 'user', ?)"
+        )
+        .run(fullname, phonenumber, hashed, birthDate || null, isOrganizer ? 1 : 0);
 
-  res.status(201).json({ token, user });
+      const newUserId = result.lastInsertRowid;
+
+      if (isOrganizer) {
+        db.prepare("INSERT INTO organizers (userId, licenceNumber, email) VALUES (?, ?, ?)").run(
+          newUserId,
+          licenceNumber,
+          email
+        );
+      }
+
+      return newUserId;
+    });
+
+    const userRow = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
+    const user = toPublicUser(userRow);
+    const token = generateToken();
+    tokens.set(token, user);
+
+    // Include the organizer profile in the response when relevant, so the
+    // frontend has licenceNumber/email right after signup without a second request.
+    const responseBody = { token, user };
+    if (isOrganizer) {
+      responseBody.organizer = db
+        .prepare("SELECT licenceNumber, email, createdAt FROM organizers WHERE userId = ?")
+        .get(userId);
+    }
+
+    res.status(201).json(responseBody);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to register." });
+  }
 });
 
 // ── Auth: Login ──
-
+// ONE query, against ONE table. Organizers are users, so there's no second
+// lookup to fall back to anymore (requirement #4 / #2 under Login).
 server.post("/auth/login", (req, res) => {
   const { phonenumber, password } = req.body;
 
@@ -107,22 +199,16 @@ server.post("/auth/login", (req, res) => {
   }
 
   const userRow = db.prepare("SELECT * FROM users WHERE phonenumber = ?").get(phonenumber);
-  if (userRow && verifyPassword(password, userRow.password)) {
-    const token = generateToken();
-    const userData = { id: userRow.id, fullname: userRow.fullname, phonenumber: userRow.phonenumber, role: userRow.role };
-    tokens.set(token, userData);
-    return res.json({ token, user: userData });
+
+  if (!userRow || !verifyPassword(password, userRow.password)) {
+    return res.status(401).json({ error: "Invalid phone number or password." });
   }
 
-  const orgRow = db.prepare("SELECT * FROM organizers WHERE phonenumber = ?").get(phonenumber);
-  if (orgRow && verifyPassword(password, orgRow.password)) {
-    const token = generateToken();
-    const userData = { id: orgRow.id, fullname: orgRow.fullname, phonenumber: orgRow.phonenumber, role: "organizer" };
-    tokens.set(token, userData);
-    return res.json({ token, user: userData });
-  }
+  const user = toPublicUser(userRow);
+  const token = generateToken();
+  tokens.set(token, user);
 
-  return res.status(401).json({ error: "Invalid phone number or password." });
+  res.json({ token, user });
 });
 
 // ── Events (public) ──
@@ -138,7 +224,9 @@ server.get("/events/:id", (req, res) => {
     return res.status(404).json({ error: "Event not found." });
   }
 
-  const organizer = db.prepare("SELECT fullname FROM organizers WHERE id = ?").get(event.organizerId);
+  // event.organizerId is now a users.id directly, so the organizer's name
+  // comes straight from "users" — no need to go through "organizers" at all.
+  const organizer = db.prepare("SELECT fullname FROM users WHERE id = ?").get(event.organizerId);
   const ticketsSold = getEventAttendeeCount(event.id);
 
   res.json({
@@ -149,8 +237,12 @@ server.get("/events/:id", (req, res) => {
 });
 
 // ── Events (organizer) ──
+// All three routes below swap requireRole("organizer") for requireOrganizer.
+// The queries themselves don't need to change: event.organizerId already
+// matches req.user.id, because that id now comes from the same users table
+// on both sides.
 
-server.get("/events/organizer/my-events", authenticate, requireRole("organizer"), (req, res) => {
+server.get("/events/organizer/my-events", authenticate, requireOrganizer, (req, res) => {
   const events = db.prepare("SELECT * FROM events WHERE organizerId = ? ORDER BY startDate DESC").all(req.user.id);
   const result = events.map((e) => ({
     ...e,
@@ -159,7 +251,7 @@ server.get("/events/organizer/my-events", authenticate, requireRole("organizer")
   res.json(result);
 });
 
-server.post("/events", authenticate, requireRole("organizer"), (req, res) => {
+server.post("/events", authenticate, requireOrganizer, (req, res) => {
   const { title, description, category, location, price, capacity, startDate, endDate, photo } = req.body;
 
   if (!title || !location || !capacity || !startDate || !endDate) {
@@ -173,7 +265,7 @@ server.post("/events", authenticate, requireRole("organizer"), (req, res) => {
   res.status(201).json({ id: result.lastInsertRowid, title, status: "Pending" });
 });
 
-server.delete("/events/:id", authenticate, requireRole("organizer"), (req, res) => {
+server.delete("/events/:id", authenticate, requireOrganizer, (req, res) => {
   const event = db.prepare("SELECT * FROM events WHERE id = ? AND organizerId = ?").get(req.params.id, req.user.id);
   if (!event) {
     return res.status(404).json({ error: "Event not found." });
@@ -184,6 +276,10 @@ server.delete("/events/:id", authenticate, requireRole("organizer"), (req, res) 
 });
 
 // ── Tickets ──
+// Unchanged, on purpose. requireRole("user") already covers organizers too,
+// because organizers now carry role = "user" — this is exactly what
+// requirement #3 ("organizers automatically get everything a normal user
+// can do") looks like in code: nothing special needed here at all.
 
 server.post("/tickets/book", authenticate, requireRole("user"), (req, res) => {
   const { eventId, quantity } = req.body;
@@ -257,8 +353,10 @@ server.get("/tickets/:id/qr", authenticate, (req, res) => {
 });
 
 // ── Attendance ──
+// All three swap requireRole("organizer") for requireOrganizer. Queries are
+// unchanged — event.organizerId already equals req.user.id (a users.id).
 
-server.get("/attendance/event/:eventId", authenticate, requireRole("organizer"), (req, res) => {
+server.get("/attendance/event/:eventId", authenticate, requireOrganizer, (req, res) => {
   const event = db.prepare("SELECT * FROM events WHERE id = ? AND organizerId = ?").get(req.params.eventId, req.user.id);
   if (!event) {
     return res.status(404).json({ error: "Event not found." });
@@ -276,7 +374,7 @@ server.get("/attendance/event/:eventId", authenticate, requireRole("organizer"),
   res.json({ attendees });
 });
 
-server.get("/attendance/stats/:eventId", authenticate, requireRole("organizer"), (req, res) => {
+server.get("/attendance/stats/:eventId", authenticate, requireOrganizer, (req, res) => {
   const event = db.prepare("SELECT * FROM events WHERE id = ?").get(req.params.eventId);
   if (!event) return res.status(404).json({ error: "Event not found." });
 
@@ -292,7 +390,7 @@ server.get("/attendance/stats/:eventId", authenticate, requireRole("organizer"),
   });
 });
 
-server.post("/attendance/scan", authenticate, requireRole("organizer"), (req, res) => {
+server.post("/attendance/scan", authenticate, requireOrganizer, (req, res) => {
   const { qrData } = req.body;
   if (!qrData) {
     return res.status(400).json({ error: "qrData is required." });
@@ -340,38 +438,97 @@ server.post("/attendance/scan", authenticate, requireRole("organizer"), (req, re
 });
 
 // ── Organizer Profile ──
+// Rewritten: organizers no longer stores fullname/phonenumber/orgName/
+// description/logo — only id, userId, licenceNumber, email, createdAt. We
+// join back to "users" to still return the person's name/phone alongside
+// their organizer-specific fields, so the response stays as complete as
+// before even though the underlying columns moved.
 
-server.get("/organizer/profile", authenticate, requireRole("organizer"), (req, res) => {
-  const org = db.prepare("SELECT id, fullname, phonenumber, orgName, email, description, logo, createdAt FROM organizers WHERE id = ?").get(req.user.id);
-  if (!org) return res.status(404).json({ error: "Profile not found." });
-  res.json(org);
+server.get("/organizer/profile", authenticate, requireOrganizer, (req, res) => {
+  const profile = db
+    .prepare(
+      `SELECT o.id, o.userId, o.licenceNumber, o.email, o.createdAt,
+              u.fullname, u.phonenumber
+       FROM organizers o
+       JOIN users u ON u.id = o.userId
+       WHERE o.userId = ?`
+    )
+    .get(req.user.id);
+
+  if (!profile) return res.status(404).json({ error: "Profile not found." });
+  res.json(profile);
 });
 
-server.put("/organizer/profile", authenticate, requireRole("organizer"), (req, res) => {
-  const { orgName, email, description, logo } = req.body;
-  db.prepare("UPDATE organizers SET orgName=?, email=?, description=?, logo=? WHERE id=?")
-    .run(orgName || "", email || "", description || "", logo || "", req.user.id);
+server.put("/organizer/profile", authenticate, requireOrganizer, (req, res) => {
+  // orgName/description/logo no longer exist as columns, so the only
+  // organizer-specific fields left to edit here are email and licenceNumber.
+  // (Editing fullname/phonenumber would be a "user account" update, not an
+  // "organizer profile" update, and is out of scope for this endpoint.)
+  const { email, licenceNumber } = req.body;
+
+  if (!email && !licenceNumber) {
+    return res.status(400).json({ error: "Provide email and/or licenceNumber to update." });
+  }
+
+  if (licenceNumber) {
+    const clash = db
+      .prepare("SELECT id FROM organizers WHERE licenceNumber = ? AND userId != ?")
+      .get(licenceNumber, req.user.id);
+    if (clash) {
+      return res.status(409).json({ error: "This licence number is already registered." });
+    }
+  }
+
+  const current = db.prepare("SELECT * FROM organizers WHERE userId = ?").get(req.user.id);
+  db.prepare("UPDATE organizers SET email = ?, licenceNumber = ? WHERE userId = ?").run(
+    email || current.email,
+    licenceNumber || current.licenceNumber,
+    req.user.id
+  );
+
   res.json({ message: "Profile updated." });
 });
 
 // ── Admin: Organizer Management ──
 
 server.get("/admin/organizers", authenticate, requireRole("admin"), (req, res) => {
-  const orgs = db.prepare(
-    "SELECT id, fullname, phonenumber, orgName, email, description, logo, createdAt FROM organizers ORDER BY createdAt DESC"
-  ).all();
+  // organizers no longer carries identity fields itself, so we join to
+  // users for fullname/phonenumber.
+  const orgs = db
+    .prepare(
+      `SELECT o.id, o.userId, u.fullname, u.phonenumber, o.licenceNumber, o.email, o.createdAt
+       FROM organizers o
+       JOIN users u ON u.id = o.userId
+       ORDER BY o.createdAt DESC`
+    )
+    .all();
   res.json(orgs);
 });
 
 server.delete("/admin/organizers/:id", authenticate, requireRole("admin"), (req, res) => {
-  db.prepare("DELETE FROM organizers WHERE id = ?").run(req.params.id);
+  
+  const organizer = db.prepare("SELECT * FROM organizers WHERE id = ?").get(req.params.id);
+  if (!organizer) {
+    return res.status(404).json({ error: "Organizer not found." });
+  }
+
+  runInTransaction(() => {
+    db.prepare("DELETE FROM events WHERE organizerId = ?").run(organizer.userId);
+    db.prepare("DELETE FROM organizers WHERE id = ?").run(organizer.id);
+    db.prepare("UPDATE users SET isOrganizer = 0 WHERE id = ?").run(organizer.userId);
+  });
+
   res.json({ message: "Organizer deleted." });
 });
 
 // ── Admin ──
 
 server.get("/admin/stats", authenticate, requireRole("admin"), (req, res) => {
-  const totalUsers = db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'user'").get().c;
+  // totalUsers now specifically means "plain users who are not organizers",
+  // so it keeps meaning what it always meant, even though organizers also
+  // technically have role = 'user' now. totalOrganizers is unaffected —
+  // it's still just a row count of the organizers table.
+  const totalUsers = db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'user' AND isOrganizer = 0").get().c;
   const totalOrganizers = db.prepare("SELECT COUNT(*) AS c FROM organizers").get().c;
   const totalEvents = db.prepare("SELECT COUNT(*) AS c FROM events").get().c;
   const pendingEvents = db.prepare("SELECT COUNT(*) AS c FROM events WHERE status = 'Pending'").get().c;
@@ -382,7 +539,20 @@ server.get("/admin/stats", authenticate, requireRole("admin"), (req, res) => {
 });
 
 server.get("/admin/users", authenticate, requireRole("admin"), (req, res) => {
-  const users = db.prepare("SELECT id, fullname, phonenumber, birthDate, role FROM users ORDER BY id ASC").all();
+  // isOrganizer added to the SELECT (additive, non-breaking) so the admin
+  // panel can tell organizers apart from plain users in this same list.
+  //
+  // db.prepare().all() hands back raw SQLite rows, where isOrganizer is
+  // the column's native 0/1. Every other place in this file that exposes
+  // isOrganizer to the client goes through toPublicUser(), which converts
+  // it to a real boolean — so we map over these rows the same way here,
+  // otherwise this single endpoint would be the only place in the API
+  // where isOrganizer comes back as a number instead of true/false.
+  const users = db
+    .prepare("SELECT id, fullname, phonenumber, birthDate, role, isOrganizer FROM users ORDER BY id ASC")
+    .all()
+    .map((u) => ({ ...u, isOrganizer: !!u.isOrganizer }));
+
   res.json(users);
 });
 
@@ -396,17 +566,25 @@ server.put("/admin/users/:id/role", authenticate, requireRole("admin"), (req, re
 });
 
 server.delete("/admin/users/:id", authenticate, requireRole("admin"), (req, res) => {
-  db.prepare("DELETE FROM booked_tickets WHERE userId = ?").run(req.params.id);
+  // A single delete is now enough: PRAGMA foreign_keys = ON (set in
+  // database.js) plus ON DELETE CASCADE on organizers.userId,
+  // events.organizerId, and booked_tickets.userId/eventId means SQLite
+  // automatically removes this user's organizer profile (if any), every
+  // event they organized (and, transitively, everyone else's tickets to
+  // those events), and every ticket they personally booked.
   db.prepare("DELETE FROM users WHERE id = ?").run(req.params.id);
   res.json({ message: "User deleted." });
 });
 
 server.get("/admin/events/pending", authenticate, requireRole("admin"), (req, res) => {
+  // Simplified: since events.organizerId is now a users.id directly, the
+  // organizer's name comes straight from "users" — the old join through
+  // "organizers" is no longer necessary at all.
   const events = db.prepare(
     `SELECT e.id, e.title, e.category, e.location, e.startDate, e.endDate, e.capacity,
-            o.fullname AS organizerName
+            u.fullname AS organizerName
      FROM events e
-     JOIN organizers o ON o.id = e.organizerId
+     JOIN users u ON u.id = e.organizerId
      WHERE e.status = 'Pending'
      ORDER BY e.startDate ASC`
   ).all();
