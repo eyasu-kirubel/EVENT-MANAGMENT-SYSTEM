@@ -36,6 +36,7 @@ function toPublicUser(userRow) {
     id: userRow.id,
     fullname: userRow.fullname,
     phonenumber: userRow.phonenumber,
+    email: userRow.email,
     role: userRow.role,
     isOrganizer: !!userRow.isOrganizer, // stored as 0/1 in SQLite, exposed as true/false over the API
   };
@@ -50,7 +51,17 @@ function authenticate(req, res, next) {
   if (!data) {
     return res.status(401).json({ error: "Invalid token" });
   }
-  req.user = data;
+  // Re-read the user from the DB on every request so role/status changes
+  // (e.g. an admin suspending someone or editing their role) take effect
+  // immediately instead of waiting for the token to expire.
+  const row = db.prepare("SELECT * FROM users WHERE id = ?").get(data.id);
+  if (!row) {
+    return res.status(401).json({ error: "Account no longer exists" });
+  }
+  if (row.status === "suspended") {
+    return res.status(403).json({ error: "Your account has been suspended." });
+  }
+  req.user = toPublicUser(row);
   next();
 }
 
@@ -90,11 +101,64 @@ function getEventAttendeeCount(eventId) {
   return row.total;
 }
 
+function parseTicketTiers(event) {
+  if (!event) return [];
+  try {
+    const parsed = JSON.parse(event.ticketTiers || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function validateEventDates(startDate, endDate) {
+  if (!startDate || !endDate) return null;
+  if (isNaN(Date.parse(startDate)) || isNaN(Date.parse(endDate))) {
+    return "Invalid date. Use YYYY-MM-DD.";
+  }
+  if (endDate < startDate) {
+    return "End date must be the same as or after the start date.";
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (new Date(startDate) < today) {
+    return "Start date cannot be in the past.";
+  }
+  return null;
+}
+
+function decorateEvent(event) {
+  if (!event) return event;
+  let accounts = [];
+  try {
+    const parsed = JSON.parse(event.paymentAccounts || "[]");
+    if (Array.isArray(parsed)) accounts = parsed;
+  } catch {}
+  return {
+    ...event,
+    paymentAccount: accounts.length > 0 ? accounts[0].number : event.paymentAccount || null,
+    paymentAccounts: accounts,
+    ticketTiers: parseTicketTiers(event),
+  };
+}
+
 // ── Auth: Check Phone ──
 // Only "users" holds phone numbers now — organizers no longer have their
 // own phonenumber column, so there's only ever one table to check.
 server.get("/auth/check-phone/:phonenumber", (req, res) => {
   const existing = db.prepare("SELECT id FROM users WHERE phonenumber = ?").get(req.params.phonenumber);
+  res.json({ exists: !!existing });
+});
+
+// ── Auth: Check Licence ──
+server.get("/auth/check-licence/:licenceNumber", (req, res) => {
+  const existing = db.prepare("SELECT id FROM organizers WHERE licenceNumber = ?").get(req.params.licenceNumber);
+  res.json({ exists: !!existing });
+});
+
+// ── Auth: Check Email ──
+server.get("/auth/check-email/:email", (req, res) => {
+  const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(String(req.params.email).trim().toLowerCase());
   res.json({ exists: !!existing });
 });
 
@@ -115,16 +179,26 @@ server.post("/auth/register", (req, res) => {
   if (password.length < 6) {
     return res.status(400).json({ error: "password must be at least 6 characters." });
   }
+  if (!email) {
+    return res.status(400).json({ error: "email is required." });
+  }
 
-  // 2. Fields required ONLY for organizers (requirement #1).
-  if (isOrganizer && (!licenceNumber || !email)) {
-    return res.status(400).json({ error: "licenceNumber and email are required to register as an organizer." });
+  // 2. Fields required ONLY for organizers.
+  if (isOrganizer && !licenceNumber) {
+    return res.status(400).json({ error: "licenceNumber is required to register as an organizer." });
   }
 
   // 3. Single uniqueness source: the users table's phonenumber column.
   const existingUser = db.prepare("SELECT id FROM users WHERE phonenumber = ?").get(phonenumber);
   if (existingUser) {
     return res.status(409).json({ error: "Phone number is already registered." });
+  }
+
+  // Email must also be unique — checked ahead of time so we return a clean
+  // 409 instead of letting the same email register twice.
+  const existingEmail = db.prepare("SELECT id FROM users WHERE email = ?").get(String(email).trim().toLowerCase());
+  if (existingEmail) {
+    return res.status(409).json({ error: "Email is already registered." });
   }
 
   // 4. For organizers, licenceNumber must also be unique — checked ahead of
@@ -150,9 +224,9 @@ server.post("/auth/register", (req, res) => {
       // per requirement #2. isOrganizer is what carries the distinction.
       const result = db
         .prepare(
-          "INSERT INTO users (fullname, phonenumber, password, birthDate, role, isOrganizer) VALUES (?, ?, ?, ?, 'user', ?)"
+          "INSERT INTO users (fullname, phonenumber, password, birthDate, email, role, isOrganizer) VALUES (?, ?, ?, ?, ?, 'user', ?)"
         )
-        .run(fullname, phonenumber, hashed, birthDate || null, isOrganizer ? 1 : 0);
+        .run(fullname, phonenumber, hashed, birthDate || null, email || null, isOrganizer ? 1 : 0);
 
       const newUserId = result.lastInsertRowid;
 
@@ -204,6 +278,10 @@ server.post("/auth/login", (req, res) => {
     return res.status(401).json({ error: "Invalid phone number or password." });
   }
 
+  if (userRow.status === "suspended") {
+    return res.status(403).json({ error: "Your account has been suspended. Contact support." });
+  }
+
   const user = toPublicUser(userRow);
   const token = generateToken();
   tokens.set(token, user);
@@ -211,11 +289,68 @@ server.post("/auth/login", (req, res) => {
   res.json({ token, user });
 });
 
+// ── Auth: Forgot Password ──
+
+server.post("/auth/forgot-password", (req, res) => {
+  const { phonenumber, email } = req.body;
+  if (!phonenumber || !email) {
+    return res.status(400).json({ error: "Phone number and email are required." });
+  }
+
+  const user = db.prepare("SELECT id, email FROM users WHERE phonenumber = ?").get(phonenumber);
+  if (!user) {
+    return res.status(404).json({ error: "No account found with this phone number." });
+  }
+  if (!user.email || user.email.toLowerCase() !== String(email).toLowerCase()) {
+    return res.status(403).json({ error: "Email does not match this account." });
+  }
+
+  // Generate 6-digit code valid for 15 minutes
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+  // Delete any existing codes for this phone, then insert new one
+  db.prepare("DELETE FROM reset_codes WHERE phonenumber = ?").run(phonenumber);
+  db.prepare("INSERT INTO reset_codes (phonenumber, code, expiresAt) VALUES (?, ?, ?)").run(phonenumber, code, expiresAt);
+
+  res.json({ message: "Reset code sent.", code }); // code returned since we have no SMS
+});
+
+server.post("/auth/reset-password", (req, res) => {
+  const { phonenumber, code, newPassword } = req.body;
+
+  if (!phonenumber || !code || !newPassword) {
+    return res.status(400).json({ error: "phonenumber, code, and newPassword are required." });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: "Password must be at least 6 characters." });
+  }
+
+  const reset = db.prepare("SELECT * FROM reset_codes WHERE phonenumber = ? AND code = ?").get(phonenumber, code);
+  if (!reset) {
+    return res.status(400).json({ error: "Invalid or expired reset code." });
+  }
+
+  if (new Date(reset.expiresAt) < new Date()) {
+    db.prepare("DELETE FROM reset_codes WHERE id = ?").run(reset.id);
+    return res.status(400).json({ error: "Reset code has expired." });
+  }
+
+  const hashed = hashPassword(newPassword);
+  db.prepare("UPDATE users SET password = ? WHERE phonenumber = ?").run(hashed, phonenumber);
+  db.prepare("DELETE FROM reset_codes WHERE phonenumber = ?").run(phonenumber);
+
+  res.json({ message: "Password reset successfully." });
+});
+
 // ── Events (public) ──
 
 server.get("/events", (req, res) => {
   const events = db.prepare("SELECT * FROM events WHERE status = 'Approved' ORDER BY startDate ASC").all();
-  res.json(events);
+  res.json(events.map((e) => decorateEvent({
+    ...e,
+    ticketsSold: getEventAttendeeCount(e.id),
+  })));
 });
 
 server.get("/events/:id", (req, res) => {
@@ -229,11 +364,19 @@ server.get("/events/:id", (req, res) => {
   const organizer = db.prepare("SELECT fullname FROM users WHERE id = ?").get(event.organizerId);
   const ticketsSold = getEventAttendeeCount(event.id);
 
-  res.json({
+  const tierSales = {};
+  for (const row of db.prepare(
+    "SELECT tier, COALESCE(SUM(quantity), 0) AS s FROM booked_tickets WHERE eventId = ? GROUP BY tier"
+  ).all(event.id)) {
+    tierSales[row.tier] = row.s;
+  }
+
+  res.json(decorateEvent({
     ...event,
     organizerName: organizer ? organizer.fullname : "Unknown",
     ticketsSold,
-  });
+    tierSales,
+  }));
 });
 
 // ── Events (organizer) ──
@@ -244,7 +387,31 @@ server.get("/events/:id", (req, res) => {
 
 server.get("/events/organizer/my-events", authenticate, requireOrganizer, (req, res) => {
   const events = db.prepare("SELECT * FROM events WHERE organizerId = ? ORDER BY startDate DESC").all(req.user.id);
-  const result = events.map((e) => ({
+  const result = events.map((e) => decorateEvent({
+    ...e,
+    ticketsSold: getEventAttendeeCount(e.id),
+  }));
+  res.json(result);
+});
+
+// ── Organizer Dashboard ──
+
+server.get("/organizer/stats", authenticate, requireOrganizer, (req, res) => {
+  const totalEvents = db.prepare("SELECT COUNT(*) AS c FROM events WHERE organizerId = ?").get(req.user.id).c;
+  const pendingEvents = db.prepare("SELECT COUNT(*) AS c FROM events WHERE organizerId = ? AND status = 'Pending'").get(req.user.id).c;
+  const totalBookings = db.prepare(
+    "SELECT COUNT(*) AS c FROM booked_tickets bt JOIN events e ON e.id = bt.eventId WHERE e.organizerId = ?"
+  ).get(req.user.id).c;
+  const totalRevenue = db.prepare(
+    "SELECT COALESCE(SUM(bt.unitPrice * bt.quantity), 0) AS c FROM booked_tickets bt JOIN events e ON e.id = bt.eventId WHERE e.organizerId = ?"
+  ).get(req.user.id).c;
+
+  res.json({ totalEvents, pendingEvents, totalBookings, totalRevenue });
+});
+
+server.get("/organizer/events/recent", authenticate, requireOrganizer, (req, res) => {
+  const events = db.prepare("SELECT * FROM events WHERE organizerId = ? ORDER BY startDate DESC LIMIT 5").all(req.user.id);
+  const result = events.map((e) => decorateEvent({
     ...e,
     ticketsSold: getEventAttendeeCount(e.id),
   }));
@@ -252,17 +419,105 @@ server.get("/events/organizer/my-events", authenticate, requireOrganizer, (req, 
 });
 
 server.post("/events", authenticate, requireOrganizer, (req, res) => {
-  const { title, description, category, location, price, capacity, startDate, endDate, photo } = req.body;
+  const { title, description, category, location, price, capacity, startDate, endDate, photo, paymentAccounts, ticketTiers } = req.body;
 
   if (!title || !location || !capacity || !startDate || !endDate) {
     return res.status(400).json({ error: "title, location, capacity, startDate and endDate are required." });
   }
 
+  const dateError = validateEventDates(startDate, endDate);
+  if (dateError) {
+    return res.status(400).json({ error: dateError });
+  }
+
+  const accounts = Array.isArray(paymentAccounts)
+    ? paymentAccounts
+        .filter((a) => a && a.method && a.number)
+        .map((a) => ({ method: a.method, number: String(a.number).trim() }))
+    : [];
+  const firstAccount = accounts.length > 0 ? accounts[0].number : "";
+
+  const tiers = Array.isArray(ticketTiers)
+    ? ticketTiers
+        .filter((t) => t && t.name && String(t.name).trim() && Number(t.capacity) > 0)
+        .map((t) => ({ name: String(t.name).trim(), price: Number(t.price) || 0, capacity: Number(t.capacity) }))
+    : [];
+
+  if (tiers.length > 0) {
+    const tierTotal = tiers.reduce((sum, t) => sum + Number(t.capacity), 0);
+    if (tierTotal > Number(capacity)) {
+      return res.status(400).json({ error: `Ticket sections add up to ${tierTotal}, which exceeds the event capacity of ${capacity}.` });
+    }
+  }
+
   const result = db.prepare(
-    "INSERT INTO events (title, description, category, location, price, capacity, startDate, endDate, photo, organizerId, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending')"
-  ).run(title, description || "", category || "General", location, price || 0, capacity, startDate, endDate, photo || "", req.user.id);
+    "INSERT INTO events (title, description, category, location, price, capacity, startDate, endDate, photo, paymentAccount, paymentAccounts, ticketTiers, organizerId, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending')"
+  ).run(title, description || "", category || "General", location, price || 0, capacity, startDate, endDate, photo || "", firstAccount, JSON.stringify(accounts), JSON.stringify(tiers), req.user.id);
 
   res.status(201).json({ id: result.lastInsertRowid, title, status: "Pending" });
+});
+
+server.put("/events/:id", authenticate, requireOrganizer, (req, res) => {
+  const event = db.prepare("SELECT * FROM events WHERE id = ? AND organizerId = ?").get(req.params.id, req.user.id);
+  if (!event) {
+    return res.status(404).json({ error: "Event not found." });
+  }
+
+  const { title, description, category, location, price, capacity, startDate, endDate, photo, paymentAccounts, ticketTiers } = req.body;
+
+  if (!title || !location || !capacity || !startDate || !endDate) {
+    return res.status(400).json({ error: "title, location, capacity, startDate and endDate are required." });
+  }
+
+  const dateError = validateEventDates(startDate, endDate);
+  if (dateError) {
+    return res.status(400).json({ error: dateError });
+  }
+
+  const accounts = Array.isArray(paymentAccounts)
+    ? paymentAccounts
+        .filter((a) => a && a.method && a.number)
+        .map((a) => ({ method: a.method, number: String(a.number).trim() }))
+    : [];
+  const firstAccount = accounts.length > 0 ? accounts[0].number : "";
+
+  const tiers = Array.isArray(ticketTiers)
+    ? ticketTiers
+        .filter((t) => t && t.name && String(t.name).trim() && Number(t.capacity) > 0)
+        .map((t) => ({ name: String(t.name).trim(), price: Number(t.price) || 0, capacity: Number(t.capacity) }))
+    : [];
+
+  if (tiers.length > 0) {
+    const tierTotal = tiers.reduce((sum, t) => sum + Number(t.capacity), 0);
+    if (tierTotal > Number(capacity)) {
+      return res.status(400).json({ error: `Ticket sections add up to ${tierTotal}, which exceeds the event capacity of ${capacity}.` });
+    }
+  }
+
+  // Never let an organizer shrink capacity below what's already sold.
+  const ticketsSold = getEventAttendeeCount(event.id);
+  if (tiers.length > 0) {
+    const tierSold = {};
+    for (const row of db.prepare(
+      "SELECT tier, COALESCE(SUM(quantity), 0) AS s FROM booked_tickets WHERE eventId = ? GROUP BY tier"
+    ).all(event.id)) {
+      tierSold[row.tier] = row.s;
+    }
+    for (const t of tiers) {
+      const sold = tierSold[t.name] || 0;
+      if (Number(t.capacity) < sold) {
+        return res.status(400).json({ error: `${t.name} capacity cannot be below the ${sold} already-sold seat(s).` });
+      }
+    }
+  } else if (Number(capacity) < ticketsSold) {
+    return res.status(400).json({ error: `Capacity cannot be below the ${ticketsSold} already-sold ticket(s).` });
+  }
+
+  db.prepare(
+    "UPDATE events SET title = ?, description = ?, category = ?, location = ?, price = ?, capacity = ?, startDate = ?, endDate = ?, photo = ?, paymentAccount = ?, paymentAccounts = ?, ticketTiers = ?, status = 'Pending' WHERE id = ?"
+  ).run(title, description || "", category || "General", location, price || 0, capacity, startDate, endDate, photo || "", firstAccount, JSON.stringify(accounts), JSON.stringify(tiers), event.id);
+
+  res.json({ id: event.id, title, message: "Event updated. It needs to be approved again before it goes live." });
 });
 
 server.delete("/events/:id", authenticate, requireOrganizer, (req, res) => {
@@ -282,32 +537,50 @@ server.delete("/events/:id", authenticate, requireOrganizer, (req, res) => {
 // can do") looks like in code: nothing special needed here at all.
 
 server.post("/tickets/book", authenticate, requireRole("user"), (req, res) => {
-  const { eventId, quantity } = req.body;
+  const { eventId, quantity, paymentMethod, paidTo, tier } = req.body;
   const qty = Number(quantity) || 1;
+  const tierName = (tier && String(tier).trim()) || "General";
 
   const event = db.prepare("SELECT * FROM events WHERE id = ? AND status = 'Approved'").get(eventId);
   if (!event) {
     return res.status(404).json({ error: "Event not found." });
   }
 
-  const ticketsSold = getEventAttendeeCount(eventId);
-  if (qty > event.capacity - ticketsSold) {
-    return res.status(400).json({ error: `Only ${event.capacity - ticketsSold} seat(s) left.` });
+  const tiers = parseTicketTiers(event);
+  let unitPrice = Number(event.price) || 0;
+
+  if (tiers.length > 0) {
+    const tierDef = tiers.find((t) => t.name === tierName);
+    if (!tierDef) {
+      return res.status(400).json({ error: "Unknown ticket section." });
+    }
+    unitPrice = Number(tierDef.price) || 0;
+    const tierSold = db.prepare(
+      "SELECT COALESCE(SUM(quantity), 0) AS total FROM booked_tickets WHERE eventId = ? AND tier = ?"
+    ).get(eventId, tierName).total;
+    if (qty > Number(tierDef.capacity) - tierSold) {
+      return res.status(400).json({ error: `Only ${Number(tierDef.capacity) - tierSold} ${tierName} seat(s) left.` });
+    }
+  } else {
+    const ticketsSold = getEventAttendeeCount(eventId);
+    if (qty > event.capacity - ticketsSold) {
+      return res.status(400).json({ error: `Only ${event.capacity - ticketsSold} seat(s) left.` });
+    }
   }
 
   const qrCode = crypto.randomUUID();
   const bookingDate = new Date().toISOString();
 
   const result = db.prepare(
-    "INSERT INTO booked_tickets (userId, eventId, quantity, qrCode, bookingDate) VALUES (?, ?, ?, ?, ?)"
-  ).run(req.user.id, eventId, qty, qrCode, bookingDate);
+    "INSERT INTO booked_tickets (userId, eventId, quantity, qrCode, bookingDate, paymentMethod, paidTo, tier, unitPrice) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(req.user.id, eventId, qty, qrCode, bookingDate, paymentMethod || null, paidTo || null, tierName, unitPrice);
 
-  res.status(201).json({ message: "Ticket booked successfully.", bookingId: result.lastInsertRowid });
+  res.status(201).json({ message: "Ticket booked successfully.", bookingId: result.lastInsertRowid, unitPrice });
 });
 
 server.get("/tickets/my", authenticate, requireRole("user"), (req, res) => {
   const tickets = db.prepare(
-    `SELECT bt.id, bt.quantity, bt.bookingDate, bt.scanned, bt.scannedAt,
+    `SELECT bt.id, bt.quantity, bt.bookingDate, bt.scanned, bt.scannedAt, bt.tier, bt.unitPrice,
             e.title AS eventTitle, e.location AS eventLocation,
             e.startDate AS eventStartDate, e.endDate AS eventEndDate
      FROM booked_tickets bt
@@ -342,6 +615,7 @@ server.get("/tickets/:id/qr", authenticate, (req, res) => {
     phone: user ? user.phonenumber : "",
     date: ticket.eventStartDate,
     qty: ticket.quantity,
+    tier: ticket.tier || "General",
     ts: ticket.bookingDate,
   });
 
@@ -350,6 +624,16 @@ server.get("/tickets/:id/qr", authenticate, (req, res) => {
     res.setHeader("Content-Type", "image/svg+xml");
     res.send(svg);
   });
+});
+
+// ── Delete Booking ──
+server.delete("/tickets/:id", authenticate, (req, res) => {
+  const ticket = db.prepare("SELECT * FROM booked_tickets WHERE id = ? AND userId = ?").get(req.params.id, req.user.id);
+  if (!ticket) {
+    return res.status(404).json({ error: "Ticket not found." });
+  }
+  db.prepare("DELETE FROM booked_tickets WHERE id = ?").run(ticket.id);
+  res.json({ message: "Booking cancelled." });
 });
 
 // ── Attendance ──
@@ -460,29 +744,109 @@ server.get("/organizer/profile", authenticate, requireOrganizer, (req, res) => {
 });
 
 server.put("/organizer/profile", authenticate, requireOrganizer, (req, res) => {
-  // orgName/description/logo no longer exist as columns, so the only
-  // organizer-specific fields left to edit here are email and licenceNumber.
-  // (Editing fullname/phonenumber would be a "user account" update, not an
-  // "organizer profile" update, and is out of scope for this endpoint.)
-  const { email, licenceNumber } = req.body;
+  const { email, licenceNumber, fullname, phonenumber } = req.body;
 
-  if (!email && !licenceNumber) {
-    return res.status(400).json({ error: "Provide email and/or licenceNumber to update." });
+  const current = db.prepare("SELECT * FROM organizers WHERE userId = ?").get(req.user.id);
+  const currentUser = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+
+  // Build updates
+  const newEmail = email !== undefined && email !== null ? String(email).trim() : current.email;
+  const newLicence = licenceNumber !== undefined && licenceNumber !== null ? String(licenceNumber).trim() : current.licenceNumber;
+  const newName = fullname !== undefined && fullname !== null ? String(fullname).trim() : currentUser.fullname;
+  const newPhone = phonenumber !== undefined && phonenumber !== null ? String(phonenumber).trim() : currentUser.phonenumber;
+
+  if (!newName) {
+    return res.status(400).json({ error: "Full name cannot be empty." });
+  }
+  if (!newPhone) {
+    return res.status(400).json({ error: "Phone number cannot be empty." });
+  }
+  if (newEmail) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+      return res.status(400).json({ error: "Enter a valid email address." });
+    }
+    const emailClash = db
+      .prepare("SELECT id FROM users WHERE LOWER(TRIM(email)) = LOWER(?) AND id != ?")
+      .get(newEmail.toLowerCase(), req.user.id);
+    if (emailClash) {
+      return res.status(409).json({ error: "Email is already in use." });
+    }
+    const orgEmailClash = db
+      .prepare("SELECT id FROM organizers WHERE LOWER(TRIM(email)) = LOWER(?) AND userId != ?")
+      .get(newEmail.toLowerCase(), req.user.id);
+    if (orgEmailClash) {
+      return res.status(409).json({ error: "Email is already in use." });
+    }
   }
 
-  if (licenceNumber) {
+  if (newLicence) {
     const clash = db
       .prepare("SELECT id FROM organizers WHERE licenceNumber = ? AND userId != ?")
-      .get(licenceNumber, req.user.id);
+      .get(newLicence, req.user.id);
     if (clash) {
       return res.status(409).json({ error: "This licence number is already registered." });
     }
   }
 
-  const current = db.prepare("SELECT * FROM organizers WHERE userId = ?").get(req.user.id);
+  const phoneClash = db
+    .prepare("SELECT id FROM users WHERE phonenumber = ? AND id != ?")
+    .get(newPhone, req.user.id);
+  if (phoneClash) {
+    return res.status(409).json({ error: "Phone number is already in use." });
+  }
+
   db.prepare("UPDATE organizers SET email = ?, licenceNumber = ? WHERE userId = ?").run(
-    email || current.email,
-    licenceNumber || current.licenceNumber,
+    newEmail,
+    newLicence,
+    req.user.id
+  );
+
+  // Also update user's fullname and phonenumber if provided
+  db.prepare("UPDATE users SET fullname = ?, phonenumber = ? WHERE id = ?").run(newName, newPhone, req.user.id);
+
+  res.json({ message: "Profile updated." });
+});
+
+// ── User Profile ──
+
+server.put("/user/profile", authenticate, (req, res) => {
+  const { fullname, phonenumber, email } = req.body;
+
+  const current = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+
+  const newFullname = fullname !== undefined && fullname !== null ? String(fullname).trim() : current.fullname;
+  const newPhone = phonenumber !== undefined && phonenumber !== null ? String(phonenumber).trim() : current.phonenumber;
+  const newEmail = email !== undefined && email !== null ? String(email).trim() : current.email;
+
+  if (!newFullname) {
+    return res.status(400).json({ error: "Full name cannot be empty." });
+  }
+  if (!newPhone) {
+    return res.status(400).json({ error: "Phone number cannot be empty." });
+  }
+  if (newEmail) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+      return res.status(400).json({ error: "Enter a valid email address." });
+    }
+    const emailClash = db
+      .prepare("SELECT id FROM users WHERE LOWER(TRIM(email)) = LOWER(?) AND id != ?")
+      .get(newEmail.toLowerCase(), req.user.id);
+    if (emailClash) {
+      return res.status(409).json({ error: "Email is already in use." });
+    }
+  }
+
+  const phoneClash = db
+    .prepare("SELECT id FROM users WHERE phonenumber = ? AND id != ?")
+    .get(newPhone, req.user.id);
+  if (phoneClash) {
+    return res.status(409).json({ error: "Phone number is already in use." });
+  }
+
+  db.prepare("UPDATE users SET fullname = ?, phonenumber = ?, email = ? WHERE id = ?").run(
+    newFullname,
+    newPhone,
+    newEmail,
     req.user.id
   );
 
@@ -538,18 +902,49 @@ server.get("/admin/stats", authenticate, requireRole("admin"), (req, res) => {
   res.json({ totalUsers, totalOrganizers, totalEvents, pendingEvents, approvedEvents, totalTickets });
 });
 
+// Tickets sold broken down per event, with the organizer's name, capacity and
+// the revenue (quantity × price). Used by the admin "Tickets by Event" page.
+server.get("/admin/tickets-per-event", authenticate, requireRole("admin"), (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT e.id, e.title, e.category, e.location, e.startDate, e.capacity, e.price,
+              u.fullname AS organizerName,
+              COALESCE(SUM(bt.quantity), 0) AS ticketsSold,
+              ROUND(COALESCE(SUM(bt.quantity * bt.unitPrice), 0), 2) AS revenue
+       FROM events e
+       JOIN users u ON u.id = e.organizerId
+       LEFT JOIN booked_tickets bt ON bt.eventId = e.id
+       GROUP BY e.id
+       ORDER BY ticketsSold DESC, e.startDate ASC`
+    )
+    .all();
+
+  // Per-section breakdown for each event.
+  const tierRows = db.prepare(
+    `SELECT eventId, tier, COALESCE(SUM(quantity), 0) AS sold,
+            ROUND(COALESCE(SUM(quantity * unitPrice), 0), 2) AS revenue
+     FROM booked_tickets GROUP BY eventId, tier`
+  ).all();
+  const tierMap = {};
+  for (const r of tierRows) {
+    if (!tierMap[r.eventId]) tierMap[r.eventId] = [];
+    tierMap[r.eventId].push({ name: r.tier, sold: r.sold, revenue: r.revenue });
+  }
+
+  res.json(rows.map((r) => ({ ...r, tiers: tierMap[r.id] || [] })));
+});
+
 server.get("/admin/users", authenticate, requireRole("admin"), (req, res) => {
   // isOrganizer added to the SELECT (additive, non-breaking) so the admin
   // panel can tell organizers apart from plain users in this same list.
-  //
-  // db.prepare().all() hands back raw SQLite rows, where isOrganizer is
-  // the column's native 0/1. Every other place in this file that exposes
-  // isOrganizer to the client goes through toPublicUser(), which converts
-  // it to a real boolean — so we map over these rows the same way here,
-  // otherwise this single endpoint would be the only place in the API
-  // where isOrganizer comes back as a number instead of true/false.
   const users = db
-    .prepare("SELECT id, fullname, phonenumber, birthDate, role, isOrganizer FROM users ORDER BY id ASC")
+    .prepare(
+      `SELECT u.id, u.fullname, u.phonenumber, u.email, u.birthDate, u.role, u.isOrganizer, u.status,
+              (SELECT COUNT(*) FROM events e WHERE e.organizerId = u.id) AS eventsCreated,
+              (SELECT COALESCE(SUM(quantity), 0) FROM booked_tickets bt WHERE bt.userId = u.id) AS ticketsBooked
+       FROM users u
+       ORDER BY u.id ASC`
+    )
     .all()
     .map((u) => ({ ...u, isOrganizer: !!u.isOrganizer }));
 
@@ -557,12 +952,74 @@ server.get("/admin/users", authenticate, requireRole("admin"), (req, res) => {
 });
 
 server.put("/admin/users/:id/role", authenticate, requireRole("admin"), (req, res) => {
-  const { role } = req.body;
-  if (!["user", "admin"].includes(role)) {
+  const { role } = req.body; // "user" | "organizer" | "admin"
+  if (!["user", "organizer", "admin"].includes(role)) {
     return res.status(400).json({ error: "Invalid role." });
   }
-  db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, req.params.id);
+  const target = db.prepare("SELECT id, role FROM users WHERE id = ?").get(req.params.id);
+  if (!target) {
+    return res.status(404).json({ error: "User not found." });
+  }
+  // Demoting/removing the last admin (or self-demotion) could lock everyone
+  // out of the panel, so block both.
+  if (target.role === "admin" && role !== "admin") {
+    if (Number(req.params.id) === req.user.id) {
+      return res.status(400).json({ error: "You cannot change your own role." });
+    }
+    const adminCount = db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin'").get().c;
+    if (adminCount <= 1) {
+      return res.status(400).json({ error: "At least one admin must remain." });
+    }
+  }
+  if (role === "organizer") {
+    db.prepare("UPDATE users SET role = 'user', isOrganizer = 1 WHERE id = ?").run(req.params.id);
+  } else if (role === "admin") {
+    db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(req.params.id);
+  } else {
+    db.prepare("UPDATE users SET role = 'user', isOrganizer = 0 WHERE id = ?").run(req.params.id);
+  }
   res.json({ message: "Role updated." });
+});
+
+server.put("/admin/users/:id", authenticate, requireRole("admin"), (req, res) => {
+  const { fullname, phonenumber, email } = req.body;
+  const target = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
+  if (!target) {
+    return res.status(404).json({ error: "User not found." });
+  }
+  if (!fullname || !fullname.trim()) {
+    return res.status(400).json({ error: "Full name is required." });
+  }
+  if (!phonenumber || !phonenumber.trim()) {
+    return res.status(400).json({ error: "Phone number is required." });
+  }
+  const phoneTaken = db.prepare("SELECT id FROM users WHERE phonenumber = ? AND id != ?").get(phonenumber.trim(), req.params.id);
+  if (phoneTaken) {
+    return res.status(409).json({ error: "This phone number is already in use." });
+  }
+  db.prepare("UPDATE users SET fullname = ?, phonenumber = ?, email = ? WHERE id = ?").run(
+    fullname.trim(),
+    phonenumber.trim(),
+    (email || "").trim(),
+    req.params.id
+  );
+  res.json({ message: "User updated." });
+});
+
+server.put("/admin/users/:id/status", authenticate, requireRole("admin"), (req, res) => {
+  const { status } = req.body;
+  if (!["active", "suspended"].includes(status)) {
+    return res.status(400).json({ error: "Invalid status." });
+  }
+  if (Number(req.params.id) === req.user.id) {
+    return res.status(400).json({ error: "You cannot suspend your own account." });
+  }
+  const target = db.prepare("SELECT id FROM users WHERE id = ?").get(req.params.id);
+  if (!target) {
+    return res.status(404).json({ error: "User not found." });
+  }
+  db.prepare("UPDATE users SET status = ? WHERE id = ?").run(status, req.params.id);
+  res.json({ message: status === "suspended" ? "User suspended." : "User activated." });
 });
 
 server.delete("/admin/users/:id", authenticate, requireRole("admin"), (req, res) => {
@@ -574,6 +1031,22 @@ server.delete("/admin/users/:id", authenticate, requireRole("admin"), (req, res)
   // those events), and every ticket they personally booked.
   db.prepare("DELETE FROM users WHERE id = ?").run(req.params.id);
   res.json({ message: "User deleted." });
+});
+
+// Full list of every event (all statuses) for the admin dashboard.
+server.get("/admin/events", authenticate, requireRole("admin"), (req, res) => {
+  const events = db
+    .prepare(
+      `SELECT e.*, u.fullname AS organizerName
+       FROM events e
+       JOIN users u ON u.id = e.organizerId
+       ORDER BY e.startDate DESC`
+    )
+    .all();
+  res.json(events.map((e) => decorateEvent({
+    ...e,
+    ticketsSold: getEventAttendeeCount(e.id),
+  })));
 });
 
 server.get("/admin/events/pending", authenticate, requireRole("admin"), (req, res) => {

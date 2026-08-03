@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { api } from "../utils/api";
 import { useAuth } from "../context/AuthContext";
+import { CATEGORY_ICONS } from "../constants/categories";
 
 const PAYMENT_METHODS = [
   { id: "telebirr", name: "Telebirr", icon: "📱", color: "#00a651", placeholder: "09XXXXXXXX", hint: "Ethio Telecom number" },
@@ -9,11 +10,17 @@ const PAYMENT_METHODS = [
   { id: "mpesa", name: "M-PESA", icon: "💳", color: "#e3002b", placeholder: "07XXXXXXXX", hint: "Safaricom number" },
 ];
 
-const CATEGORY_ICONS = {
-  Concert: "\u266B", Seminar: "\uD83D\uDCDD", Workshop: "\uD83D\uDD27",
-  Conference: "\uD83D\uDCBB", Sports: "\u26BD", Exhibition: "\uD83C\uDFA8",
-  Networking: "\uD83E\uDD1D", General: "\u2B50",
-};
+function getPayeeAccounts(event) {
+  if (!event) return [];
+  const accounts = Array.isArray(event.paymentAccounts)
+    ? event.paymentAccounts
+    : event.paymentAccount
+      ? [{ method: "telebirr", number: event.paymentAccount }]
+      : [];
+  return accounts.filter((a) => a && a.method && a.number);
+}
+
+const CATEGORY_ICONS_FALLBACK = "\u2728";
 
 export default function EventDetailPage() {
   const { id } = useParams();
@@ -22,9 +29,9 @@ export default function EventDetailPage() {
   const [event, setEvent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
+  const [tierName, setTierName] = useState("General");
   const [step, setStep] = useState("details");
   const [paymentMethod, setPaymentMethod] = useState("");
-  const [paymentPhone, setPaymentPhone] = useState("");
   const [processing, setProcessing] = useState(false);
   const [bookedBookingId, setBookedBookingId] = useState(null);
   const [message, setMessage] = useState("");
@@ -34,6 +41,11 @@ export default function EventDetailPage() {
     try {
       const data = await api.get(`/events/${id}`);
       setEvent(data);
+      if (data.ticketTiers && data.ticketTiers.length > 0) {
+        setTierName(data.ticketTiers[0].name);
+      } else {
+        setTierName("General");
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -53,12 +65,10 @@ export default function EventDetailPage() {
 
   function handlePay() {
     if (!paymentMethod) { setError("Select a payment method"); return; }
-    if (!paymentPhone.trim()) { setError("Enter a valid number"); return; }
-    const digits = paymentPhone.replace(/\D/g, "");
-    if (paymentMethod === "cbe") {
-      if (digits.length !== 13) { setError("Enter a valid number"); return; }
-    } else {
-      if (digits.length !== 10) { setError("Enter a valid number"); return; }
+    const payee = getPayeeAccounts(event).find((a) => a.method === paymentMethod);
+    if (!payee) {
+      setError(`Organizer has no ${PAYMENT_METHODS.find((p) => p.id === paymentMethod)?.name} account — pick another method.`);
+      return;
     }
     setError("");
     setStep("processing");
@@ -66,7 +76,7 @@ export default function EventDetailPage() {
 
     setTimeout(async () => {
       try {
-        const data = await api.post("/tickets/book", { eventId: parseInt(id), quantity });
+        const data = await api.post("/tickets/book", { eventId: parseInt(id), quantity, tier: tierName, paymentMethod, paidTo: payee.number });
         setBookedBookingId(data.bookingId);
         setMessage("Payment successful! Your ticket is confirmed.");
         setStep("success");
@@ -127,11 +137,22 @@ export default function EventDetailPage() {
   if (!event) return <div className="error">Event not found</div>;
 
   const remaining = event.capacity - (event.ticketsSold || 0);
-  const totalPrice = event.price * quantity;
+  const tiers = Array.isArray(event.ticketTiers) ? event.ticketTiers : [];
+  const hasTiers = tiers.length > 0;
+  const activeTier = hasTiers ? (tiers.find((t) => t.name === tierName) || tiers[0]) : null;
+  const unitPrice = activeTier ? activeTier.price : event.price;
+  const tierRemaining = activeTier
+    ? Math.max(0, activeTier.capacity - ((event.tierSales && event.tierSales[activeTier.name]) || 0))
+    : remaining;
+  const maxQty = hasTiers ? tierRemaining : remaining;
+  const totalPrice = unitPrice * quantity;
   const soldPercent = event.capacity > 0 ? ((event.ticketsSold || 0) / event.capacity) * 100 : 0;
+  const minTierPrice = hasTiers ? Math.min(...tiers.map((t) => t.price)) : event.price;
 
   return (
     <div className="ev-detail">
+      <Link to="/events" className="admin-back">← Back to Dashboard</Link>
+
       {/* Hero */}
       <div className="ev-hero">
         {event.photo ? (
@@ -146,7 +167,9 @@ export default function EventDetailPage() {
           <span className="ev-hero-category">{CATEGORY_ICONS[event.category] || "\u2728"} {event.category}</span>
           <h1 className="ev-hero-title">{event.title}</h1>
           <div className="ev-hero-price">
-            {event.price === 0 ? "Free" : `ETB ${event.price}`}
+            {hasTiers
+              ? (minTierPrice === 0 ? "Free" : `From ETB ${minTierPrice}`)
+              : (event.price === 0 ? "Free" : `ETB ${event.price}`)}
           </div>
         </div>
       </div>
@@ -198,9 +221,31 @@ export default function EventDetailPage() {
         {error && <div className="error">{error}</div>}
 
         {/* STEP: Details — quantity + book */}
-        {step === "details" && user && user.role === "user" && remaining > 0 && (
+        {step === "details" && user && user.role === "user" && maxQty > 0 && (
           <div className="ev-booking-section">
             <h3>Get Tickets</h3>
+            {hasTiers && (
+              <div className="ev-tier-picker">
+                <span className="ev-qty-label">Select section</span>
+                <div className="ev-tier-options">
+                  {tiers.map((t) => {
+                    const tRem = Math.max(0, t.capacity - ((event.tierSales && event.tierSales[t.name]) || 0));
+                    const soldOut = tRem <= 0;
+                    return (
+                      <button key={t.name} type="button"
+                        className={`ev-tier-card ${tierName === t.name ? "selected" : ""} ${soldOut ? "sold-out" : ""}`}
+                        onClick={() => { if (!soldOut) { setTierName(t.name); setQuantity(1); } }}
+                        disabled={soldOut}
+                      >
+                        <span className="ev-tier-name">{t.name}</span>
+                        <span className="ev-tier-price">{t.price === 0 ? "Free" : `ETB ${t.price}`}</span>
+                        <span className="ev-tier-left">{soldOut ? "Sold out" : `${tRem} left`}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div className="ev-quantity-row">
               <span className="ev-qty-label">Number of tickets</span>
               <div className="ev-quantity-controls">
@@ -208,15 +253,15 @@ export default function EventDetailPage() {
                   <svg width="18" height="18" viewBox="0 0 18 18"><path d="M4 9H14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
                 </button>
                 <span className="ev-qty-value">{quantity}</span>
-                <button type="button" className="ev-qty-btn" onClick={() => setQuantity(Math.min(remaining, quantity + 1))} disabled={quantity >= remaining}>
+                <button type="button" className="ev-qty-btn" onClick={() => setQuantity(Math.min(maxQty, quantity + 1))} disabled={quantity >= maxQty}>
                   <svg width="18" height="18" viewBox="0 0 18 18"><path d="M4 9H14M9 4V14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
                 </button>
               </div>
             </div>
             <div className="ev-booking-summary">
               <div className="ev-summary-row">
-                <span>{quantity}x {event.title}</span>
-                <span>ETB {(event.price * quantity).toFixed(2)}</span>
+                <span>{quantity}x {hasTiers ? `${activeTier.name} — ` : ""}{event.title}</span>
+                <span>ETB {(unitPrice * quantity).toFixed(2)}</span>
               </div>
               <div className="ev-summary-row ev-summary-total">
                 <span>Total</span>
@@ -229,7 +274,7 @@ export default function EventDetailPage() {
           </div>
         )}
 
-        {step === "details" && user && user.role === "user" && remaining <= 0 && (
+        {step === "details" && user && user.role === "user" && maxQty <= 0 && (
           <div className="ev-booking-section ev-sold-out">
             <h3>Sold Out</h3>
             <p>This event has no more available tickets.</p>
@@ -244,43 +289,65 @@ export default function EventDetailPage() {
         )}
 
         {/* STEP: Payment */}
-        {step === "payment" && (
+        {step === "payment" && (() => {
+          const payeeAccounts = getPayeeAccounts(event);
+          const payee = payeeAccounts.find((a) => a.method === paymentMethod);
+          return (
           <div className="ev-booking-section ev-payment">
             <h3>Payment</h3>
             <div className="ev-payment-methods">
               {PAYMENT_METHODS.map((pm) => (
                 <button key={pm.id} type="button"
-                  className={`ev-payment-card ${paymentMethod === pm.id ? "selected" : ""}`}
-                  onClick={() => setPaymentMethod(pm.id)}
+                  className={`ev-payment-card ${paymentMethod === pm.id ? "selected" : ""} ${!payeeAccounts.some((a) => a.method === pm.id) ? "ev-pm-missing" : ""}`}
+                  onClick={() => { setPaymentMethod(pm.id); setError(""); }}
                   style={{ "--pm-color": pm.color }}
                 >
                   <span className="ev-pm-icon">{pm.icon}</span>
                   <span className="ev-pm-name">{pm.name}</span>
+                  {!payeeAccounts.some((a) => a.method === pm.id) && (
+                    <span className="ev-pm-unavailable">not available</span>
+                  )}
                 </button>
               ))}
             </div>
             {paymentMethod && (() => {
               const pm = PAYMENT_METHODS.find(p => p.id === paymentMethod);
               return (
-                <div className="ev-payment-field">
-                  <label>{pm.hint}</label>
-                  <input type="tel" placeholder={pm.placeholder} value={paymentPhone} onChange={(e) => setPaymentPhone(e.target.value)} />
-                </div>
+                <>
+                  {payee ? (
+                    <div className="ev-payment-payto">
+                      <span className="ev-payto-label">Pay to {pm.name}</span>
+                      <span className="ev-payto-account">{payee.number}</span>
+                    </div>
+                  ) : (
+                    <div className="ev-payment-payto ev-payto-missing">
+                      <span className="ev-payto-label">Organizer has no {pm.name} account</span>
+                      <span className="ev-payto-account">Pick another method.</span>
+                    </div>
+                  )}
+                </>
               );
             })()}
             {error && <div className="field-error" style={{ marginTop: 8, marginBottom: 4, fontSize: '0.85rem' }}>{error}</div>}
             <div className="ev-booking-summary">
+              {hasTiers && (
+                <div className="ev-summary-row">
+                  <span>Section</span>
+                  <span>{activeTier.name}</span>
+                </div>
+              )}
               <div className="ev-summary-row ev-summary-total">
                 <span>Total ({quantity} ticket{quantity > 1 ? "s" : ""})</span>
                 <span>ETB {totalPrice.toFixed(2)}</span>
               </div>
             </div>
             <div className="ev-payment-actions">
-              <button type="button" className="ev-btn-back" onClick={() => { setStep("details"); setPaymentMethod(""); setPaymentPhone(""); }}>Back</button>
-              <button type="button" className="ev-book-btn" onClick={handlePay} disabled={!paymentMethod || !paymentPhone.trim()}>Pay ETB {totalPrice.toFixed(2)}</button>
+              <button type="button" className="ev-btn-back" onClick={() => { setStep("details"); setPaymentMethod(""); }}>Back</button>
+              <button type="button" className="ev-book-btn" onClick={handlePay} disabled={!paymentMethod || !payee}>Pay ETB {totalPrice.toFixed(2)}</button>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* STEP: Processing */}
         {step === "processing" && (
@@ -302,7 +369,7 @@ export default function EventDetailPage() {
               </svg>
             </div>
             <h3>Booking Confirmed!</h3>
-            <p>{quantity} ticket(s) for {event.title}</p>
+            <p>{quantity} {hasTiers ? `${activeTier.name} ` : ""}ticket(s) for {event.title}</p>
             <div className="ev-success-actions">
               <button type="button" className="ev-book-btn" onClick={downloadQR}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 11V13H14V11M8 2V10M8 10L5 7M8 10L11 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
