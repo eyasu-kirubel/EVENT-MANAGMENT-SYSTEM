@@ -25,6 +25,8 @@ export default function RegisterPage() {
     confirmPassword: "",
     birthDate: "",
     role: "",
+    licenceNumber: "",
+    email: "",
   });
   const [errors, setErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
@@ -33,6 +35,10 @@ export default function RegisterPage() {
   const [focusedField, setFocusedField] = useState("");
   const [phoneStatus, setPhoneStatus] = useState(""); // "checking" | "available" | "taken"
   const phoneTimer = useRef(null);
+  const [licenceStatus, setLicenceStatus] = useState(""); // "checking" | "available" | "taken"
+  const licenceTimer = useRef(null);
+  const [emailStatus, setEmailStatus] = useState(""); // "checking" | "available" | "taken"
+  const emailTimer = useRef(null);
   const { register } = useAuth();
   const navigate = useNavigate();
 
@@ -56,11 +62,62 @@ export default function RegisterPage() {
     return () => clearTimeout(phoneTimer.current);
   }, [form.phonenumber]);
 
+  useEffect(() => {
+    if (!form.licenceNumber || !form.licenceNumber.trim()) {
+      setLicenceStatus("");
+      return;
+    }
+    setLicenceStatus("checking");
+    clearTimeout(licenceTimer.current);
+    licenceTimer.current = setTimeout(async () => {
+      try {
+        const data = await api.get(`/auth/check-licence/${encodeURIComponent(form.licenceNumber.trim())}`);
+        setLicenceStatus(data.exists ? "taken" : "available");
+      } catch {
+        setLicenceStatus("");
+      }
+    }, 500);
+    return () => clearTimeout(licenceTimer.current);
+  }, [form.licenceNumber]);
+
+  useEffect(() => {
+    const email = form.email.trim();
+    if (!email || !/\S+@\S+\.\S+/.test(email)) {
+      setEmailStatus("");
+      return;
+    }
+    setEmailStatus("checking");
+    clearTimeout(emailTimer.current);
+    emailTimer.current = setTimeout(() => { runEmailCheck(email); }, 500);
+    return () => clearTimeout(emailTimer.current);
+  }, [form.email]);
+
+  async function runEmailCheck(email) {
+    if (!email || !/\S+@\S+\.\S+/.test(email)) {
+      setEmailStatus("");
+      return;
+    }
+    setEmailStatus("checking");
+    try {
+      const data = await api.get(`/auth/check-email/${encodeURIComponent(email)}`);
+      setEmailStatus(data.exists ? "taken" : "available");
+      setErrors((prev) => {
+        if (data.exists) return { ...prev, email: "This email is already registered" };
+        if (prev.email === "This email is already registered") return { ...prev, email: "" };
+        return prev;
+      });
+    } catch {
+      setEmailStatus("");
+    }
+  }
+
   function handleChange(e) {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
     if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
     if (name === "phonenumber") setPhoneStatus("");
+    if (name === "licenceNumber") setLicenceStatus("");
+    if (name === "email") setEmailStatus("");
   }
 
   function selectRole(role) {
@@ -80,6 +137,10 @@ export default function RegisterPage() {
         errs.phonenumber = "Enter a valid Ethiopian phone (09XXXXXXXX or 07XXXXXXXX)";
       else if (phoneStatus === "taken") errs.phonenumber = "This phone number is already registered";
       else if (phoneStatus === "checking") errs.phonenumber = "Still checking phone number...";
+      if (form.email.trim() && !/\S+@\S+\.\S+/.test(form.email.trim())) errs.email = "Enter a valid email";
+      if (!form.email.trim()) errs.email = "Email is required";
+      else if (emailStatus === "taken") errs.email = "This email is already registered";
+      else if (emailStatus === "checking") errs.email = "Still checking email...";
       if (form.birthDate) {
         const bday = new Date(form.birthDate);
         const today = new Date();
@@ -90,6 +151,11 @@ export default function RegisterPage() {
           if (m < 0 || (m === 0 && today.getDate() < bday.getDate())) age--;
           if (age < 13) errs.birthDate = "You must be at least 13 years old";
         }
+      }
+      if (form.role === "organizer") {
+        if (!form.licenceNumber.trim()) errs.licenceNumber = "Licence number is required";
+        else if (licenceStatus === "taken") errs.licenceNumber = "This licence number is already registered";
+        else if (licenceStatus === "checking") errs.licenceNumber = "Still checking licence number...";
       }
     }
     if (s === 3) {
@@ -123,10 +189,15 @@ export default function RegisterPage() {
         form.phonenumber.trim(),
         form.password,
         form.birthDate || undefined,
-        form.role
+        form.role,
+        form.licenceNumber.trim() || undefined,
+        form.email.trim() || undefined
       );
-      if (user.role === "organizer") navigate("/organizer");
-      else navigate("/events");
+      if (user.isOrganizer || user.role === "organizer") {
+        navigate("/organizer");
+      } else {
+        navigate("/events");
+      }
     } catch (err) {
       setGlobalError(err.message);
     } finally {
@@ -170,7 +241,7 @@ export default function RegisterPage() {
           </div>
 
           <div className="reg2-left-footer">
-            <span>Addis Ababa, Ethiopia</span>
+            <span>Ethiopia</span>
           </div>
         </div>
 
@@ -306,6 +377,30 @@ export default function RegisterPage() {
                   {errors.phonenumber && <span className="reg2-field-err">{errors.phonenumber}</span>}
                 </div>
 
+                <div className={`reg2-field ${hasError("email") ? "err" : ""} ${isFocused("email") ? "focused" : ""}`}>
+                  <label>Email</label>
+                  <div className="reg2-input-box">
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                      <rect x="1" y="3" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                      <path d="M1 5L9 10L17 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    <input
+                      type="email"
+                      name="email"
+                      placeholder=" "
+                      value={form.email}
+                      onChange={handleChange}
+                      onFocus={() => setFocusedField("email")}
+                      onBlur={() => { setFocusedField(""); runEmailCheck(form.email.trim()); }}
+                    />
+                    <label className="reg2-floating">name@example.com</label>
+                    {emailStatus === "checking" && <span className="reg2-phone-status checking">Checking...</span>}
+                    {emailStatus === "available" && <span className="reg2-phone-status available">Available</span>}
+                    {emailStatus === "taken" && <span className="reg2-phone-status taken">Already registered</span>}
+                  </div>
+                  {errors.email && <span className="reg2-field-err">{errors.email}</span>}
+                </div>
+
                 <div className={`reg2-field ${hasError("birthDate") ? "err" : ""} ${isFocused("birthDate") ? "focused" : ""}`}>
                   <label>Date of Birth <span className="reg2-optional">optional</span></label>
                   <div className="reg2-input-box">
@@ -327,6 +422,36 @@ export default function RegisterPage() {
                   </div>
                   {errors.birthDate && <span className="reg2-field-err">{errors.birthDate}</span>}
                 </div>
+
+                {form.role === "organizer" && (
+                  <>
+                    <div className="reg2-section-title">Organizer Information</div>
+                    <div className={`reg2-field ${hasError("licenceNumber") ? "err" : ""} ${isFocused("licenceNumber") ? "focused" : ""}`}>
+                      <label>Licence Number *</label>
+                      <div className="reg2-input-box">
+                        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                          <rect x="2" y="3" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                          <path d="M5 9H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                          <path d="M5 12H10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        </svg>
+                        <input
+                          type="text"
+                          name="licenceNumber"
+                          placeholder=" "
+                          value={form.licenceNumber}
+                          onChange={handleChange}
+                          onFocus={() => setFocusedField("licenceNumber")}
+                          onBlur={() => setFocusedField("")}
+                        />
+                        <label className="reg2-floating">Business licence number</label>
+                        {licenceStatus === "checking" && <span className="reg2-phone-status checking">Checking...</span>}
+                        {licenceStatus === "available" && <span className="reg2-phone-status available">Available</span>}
+                        {licenceStatus === "taken" && <span className="reg2-phone-status taken">Already registered</span>}
+                      </div>
+                      {errors.licenceNumber && <span className="reg2-field-err">{errors.licenceNumber}</span>}
+                    </div>
+                  </>
+                )}
 
                 <div className="reg2-btn-row">
                   <button type="button" className="reg2-btn-ghost" onClick={goBack}>
