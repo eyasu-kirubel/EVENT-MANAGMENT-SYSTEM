@@ -15,6 +15,12 @@ async function request(endpoint, options = {}) {
   const text = await res.text();
   const data = text ? JSON.parse(text) : {};
 
+  if (res.status === 401 && token) {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    window.location.href = "/login";
+  }
+
   if (!res.ok) {
     throw new Error(data.error || "Something went wrong");
   }

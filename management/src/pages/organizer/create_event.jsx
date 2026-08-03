@@ -1,10 +1,12 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../utils/api";
+import { EVENT_CATEGORIES } from "../../constants/categories";
 
-export default function CreateEventPage() {
-  const navigate = useNavigate();
-  const [form, setForm] = useState({
+const DRAFT_KEY = "eventDraft";
+
+function emptyForm() {
+  return {
     title: "",
     description: "",
     category: "General",
@@ -14,11 +16,122 @@ export default function CreateEventPage() {
     startDate: "",
     endDate: "",
     photo: "",
+    paymentAccounts: [{ method: "telebirr", number: "" }],
+    ticketTiers: [{ name: "General", price: 0, capacity: "" }],
+  };
+}
+
+function readDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || !parsed.form) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export default function CreateEventPage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const editingId = searchParams.get("edit");
+  const isEditing = !!editingId;
+  const [form, setForm] = useState(() => {
+    const draft = readDraft();
+    return draft ? { ...emptyForm(), ...draft.form } : emptyForm();
   });
+  const [draftRestored, setDraftRestored] = useState(() => !!readDraft());
   const [errors, setErrors] = useState({});
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingEvent, setLoadingEvent] = useState(!!editingId);
   const [photoPreview, setPhotoPreview] = useState("");
+
+  // Edit mode: load the existing event into the form (no draft involved).
+  useEffect(() => {
+    if (!editingId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const events = await api.get("/events/organizer/my-events");
+        const ev = events.find((e) => String(e.id) === editingId);
+        if (!ev) {
+          if (!cancelled) setError("Event not found.");
+          return;
+        }
+        if (cancelled) return;
+        setForm({
+          title: ev.title || "",
+          description: ev.description || "",
+          category: ev.category || "General",
+          location: ev.location || "",
+          price: ev.price || 0,
+          capacity: ev.capacity || "",
+          startDate: ev.startDate || "",
+          endDate: ev.endDate || "",
+          photo: ev.photo || "",
+          paymentAccounts:
+            Array.isArray(ev.paymentAccounts) && ev.paymentAccounts.length > 0
+              ? ev.paymentAccounts
+              : [{ method: "telebirr", number: "" }],
+          ticketTiers:
+            Array.isArray(ev.ticketTiers) && ev.ticketTiers.length > 0
+              ? ev.ticketTiers
+              : [{ name: "General", price: ev.price || 0, capacity: ev.capacity || "" }],
+        });
+        setPhotoPreview(ev.photo || "");
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      } finally {
+        if (!cancelled) setLoadingEvent(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [editingId]);
+
+  // Total capacity is derived from the ticket sections: whenever a section
+  // capacity changes, the event capacity auto-calculates to the sum.
+  useEffect(() => {
+    const total = form.ticketTiers.reduce((sum, t) => sum + (parseInt(t.capacity) || 0), 0);
+    const current = form.capacity === "" || form.capacity == null ? 0 : parseInt(form.capacity) || 0;
+    if (total !== current) {
+      setForm((prev) => ({ ...prev, capacity: total || "" }));
+    }
+  }, [form.ticketTiers]);
+
+  // Autosave a draft whenever the organizer types something, so leaving the
+  // page keeps their work. The photo (base64) is not stored to stay under the
+  // localStorage quota. Skipped while editing.
+  useEffect(() => {
+    if (isEditing) return;
+    const hasContent =
+      form.title.trim() ||
+      form.description.trim() ||
+      form.location.trim() ||
+      form.capacity ||
+      form.startDate ||
+      form.endDate ||
+      form.paymentAccounts.some((a) => a.number && a.number.trim()) ||
+      form.ticketTiers.some((t) => (t.capacity !== "" && t.capacity != null) || Number(t.price) > 0);
+    if (!hasContent) return;
+
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ form: { ...form, photo: "" }, hasPhoto: !!form.photo, savedAt: Date.now() }));
+      } catch {}
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [form]);
+
+  function discardDraft() {
+    localStorage.removeItem(DRAFT_KEY);
+    setForm(emptyForm());
+    setPhotoPreview("");
+    setDraftRestored(false);
+  }
 
   function handleChange(e) {
     const { name, value } = e.target;
@@ -53,6 +166,52 @@ export default function CreateEventPage() {
     reader.readAsDataURL(file);
   }
 
+  function handleAccountChange(index, field, value) {
+    setForm((prev) => ({
+      ...prev,
+      paymentAccounts: prev.paymentAccounts.map((a, i) => (i === index ? { ...a, [field]: value } : a)),
+    }));
+    if (errors.paymentAccounts) setErrors((prev) => ({ ...prev, paymentAccounts: "" }));
+  }
+
+  function addAccount() {
+    setForm((prev) => ({
+      ...prev,
+      paymentAccounts: [...prev.paymentAccounts, { method: "telebirr", number: "" }],
+    }));
+    if (errors.paymentAccounts) setErrors((prev) => ({ ...prev, paymentAccounts: "" }));
+  }
+
+  function removeAccount(index) {
+    setForm((prev) => ({
+      ...prev,
+      paymentAccounts: prev.paymentAccounts.filter((_, i) => i !== index),
+    }));
+  }
+
+  function handleTierChange(index, field, value) {
+    setForm((prev) => ({
+      ...prev,
+      ticketTiers: prev.ticketTiers.map((t, i) => (i === index ? { ...t, [field]: value } : t)),
+    }));
+    if (errors.ticketTiers) setErrors((prev) => ({ ...prev, ticketTiers: "" }));
+  }
+
+  function addTier() {
+    setForm((prev) => ({
+      ...prev,
+      ticketTiers: [...prev.ticketTiers, { name: "General", price: 0, capacity: "" }],
+    }));
+    if (errors.ticketTiers) setErrors((prev) => ({ ...prev, ticketTiers: "" }));
+  }
+
+  function removeTier(index) {
+    setForm((prev) => ({
+      ...prev,
+      ticketTiers: prev.ticketTiers.filter((_, i) => i !== index),
+    }));
+  }
+
   function validate() {
     const errs = {};
     if (!form.title.trim()) errs.title = "Title is required";
@@ -63,11 +222,49 @@ export default function CreateEventPage() {
     if (form.startDate && form.endDate && form.endDate < form.startDate) {
       errs.endDate = "End date must be after start date";
     }
+
+    const filledAccounts = form.paymentAccounts.filter((a) => a.number && a.number.trim());
+    if (filledAccounts.length === 0) {
+      errs.paymentAccounts = "Add at least one payment account";
+    } else {
+      for (const acc of filledAccounts) {
+        const digits = acc.number.replace(/\D/g, "");
+        if (acc.method === "cbe" && digits.length !== 13) {
+          errs.paymentAccounts = "CBE account must be 13 digits";
+          break;
+        }
+        if (acc.method !== "cbe" && digits.length !== 10) {
+          errs.paymentAccounts = "Phone number must be 10 digits (09XXXXXXXX)";
+          break;
+        }
+      }
+    }
     if (form.startDate) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       if (new Date(form.startDate) < today) errs.startDate = "Start date cannot be in the past";
     }
+
+    const filledTiers = form.ticketTiers.filter((t) => t.name && t.name.trim());
+    for (const tier of filledTiers) {
+      if (!tier.capacity || parseInt(tier.capacity) < 1) {
+        errs.ticketTiers = `${tier.name} needs a capacity of at least 1`;
+        break;
+      }
+      if (parseFloat(tier.price) < 0) {
+        errs.ticketTiers = `${tier.name} price cannot be negative`;
+        break;
+      }
+    }
+
+    if (filledTiers.length > 0 && form.capacity) {
+      const tierTotal = filledTiers.reduce((sum, t) => sum + (parseInt(t.capacity) || 0), 0);
+      const eventCap = parseInt(form.capacity);
+      if (eventCap && tierTotal > eventCap) {
+        errs.ticketTiers = `Ticket sections add up to ${tierTotal}, but the event capacity is ${eventCap}.`;
+      }
+    }
+
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
@@ -79,12 +276,24 @@ export default function CreateEventPage() {
     setLoading(true);
 
     try {
-      await api.post("/events", {
+      const generalTier = form.ticketTiers.find((t) => t.name === "General");
+      const payload = {
         ...form,
-        price: parseFloat(form.price) || 0,
+        price: generalTier ? parseFloat(generalTier.price) || 0 : parseFloat(form.price) || 0,
         capacity: parseInt(form.capacity),
-      });
-      navigate("/organizer");
+        paymentAccounts: form.paymentAccounts.filter((a) => a.number && a.number.trim()),
+        ticketTiers: form.ticketTiers
+          .filter((t) => t.name && t.name.trim() && parseInt(t.capacity) >= 1)
+          .map((t) => ({ name: t.name.trim(), price: parseFloat(t.price) || 0, capacity: parseInt(t.capacity) })),
+      };
+      if (isEditing) {
+        await api.put(`/events/${editingId}`, payload);
+        navigate("/organizer/events");
+      } else {
+        await api.post("/events", payload);
+        localStorage.removeItem(DRAFT_KEY);
+        navigate("/organizer");
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -99,10 +308,29 @@ export default function CreateEventPage() {
 
   return (
     <div className="page">
-      <h1>Create Event</h1>
+      <button type="button" className="admin-back" style={{ cursor: 'pointer', border: 'none', fontFamily: 'inherit' }} onClick={() => navigate('/organizer')}>
+        ← Back to Dashboard
+      </button>
+      <h1>{isEditing ? "Edit Event" : "Create Event"}</h1>
+
+      {loadingEvent ? (
+        <div className="loading">Loading event...</div>
+      ) : (
+      <>
+      {!isEditing && draftRestored && (
+        <div className="draft-banner">
+          <span className="draft-banner-text">Draft restored — your unsaved event is here.</span>
+          <button type="button" className="draft-discard-btn" onClick={discardDraft}>Discard draft</button>
+        </div>
+      )}
 
       <form className="form-card" onSubmit={handleSubmit}>
         {error && <div className="error">{error}</div>}
+        {isEditing && (
+          <div className="draft-banner">
+            <span className="draft-banner-text">Changes will send this event back for admin approval before it is live again.</span>
+          </div>
+        )}
 
         <div className="form-group">
           <label>Title *</label>
@@ -120,20 +348,62 @@ export default function CreateEventPage() {
             <label>Category</label>
             <select name="category" value={form.category} onChange={handleChange}>
               <option value="General">General</option>
-              <option value="Concert">Concert</option>
-              <option value="Seminar">Seminar</option>
-              <option value="Workshop">Workshop</option>
-              <option value="Conference">Conference</option>
-              <option value="Sports">Sports</option>
-              <option value="Exhibition">Exhibition</option>
-              <option value="Networking">Networking</option>
+              {EVENT_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
             </select>
           </div>
+        </div>
 
-          <div className="form-group">
-            <label>Price (ETB)</label>
-            <input type="number" name="price" value={form.price} onChange={handleChange} min="0" step="0.01" />
-          </div>
+        <div className="form-group">
+          <label>Ticket Sections</label>
+          <p className="form-hint">General is the default section. Set its price and capacity, then optionally add VIP and VVIP. The total capacity is calculated automatically from the sections.</p>
+          {form.ticketTiers.map((tier, index) => (
+            <div className="tier-row" key={index}>
+              <select
+                value={tier.name}
+                onChange={(e) => handleTierChange(index, "name", e.target.value)}
+                aria-label={`Tier ${index + 1} name`}
+              >
+                <option value="General">General</option>
+                <option value="VIP">VIP</option>
+                <option value="VVIP">VVIP</option>
+              </select>
+              <input
+                type="number"
+                placeholder="Price"
+                min="0"
+                step="0.01"
+                value={tier.price}
+                onChange={(e) => handleTierChange(index, "price", e.target.value)}
+                aria-label={`Tier ${index + 1} price`}
+              />
+              <input
+                type="number"
+                placeholder="Capacity"
+                min="1"
+                value={tier.capacity}
+                onChange={(e) => handleTierChange(index, "capacity", e.target.value)}
+                aria-label={`Tier ${index + 1} capacity`}
+              />
+              {form.ticketTiers.length > 1 && (
+                <button
+                  type="button"
+                  className="pay-account-remove"
+                  onClick={() => removeTier(index)}
+                  aria-label={`Remove tier ${index + 1}`}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
+          {form.ticketTiers.length < 3 && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={addTier}>
+              + Add a section
+            </button>
+          )}
+          {errors.ticketTiers && <span className="field-error">{errors.ticketTiers}</span>}
         </div>
 
         <div className="form-group">
@@ -142,10 +412,51 @@ export default function CreateEventPage() {
           {errors.location && <span className="field-error">{errors.location}</span>}
         </div>
 
+        <div className="form-group">
+          <label>Payment Accounts *</label>
+          <p className="form-hint">The accounts customers will pay to. You can add up to 3 (Telebirr, M-PESA, CBE).</p>
+          {form.paymentAccounts.map((acc, index) => (
+            <div className="pay-account-row" key={index}>
+              <select
+                value={acc.method}
+                onChange={(e) => handleAccountChange(index, "method", e.target.value)}
+                aria-label={`Payment account ${index + 1} method`}
+              >
+                <option value="telebirr">Telebirr</option>
+                <option value="mpesa">M-PESA</option>
+                <option value="cbe">CBE Bank</option>
+              </select>
+              <input
+                type="text"
+                placeholder={acc.method === "cbe" ? "CBE account (13 digits)" : "Phone number (09XXXXXXXX)"}
+                value={acc.number}
+                onChange={(e) => handleAccountChange(index, "number", e.target.value)}
+              />
+              {form.paymentAccounts.length > 1 && (
+                <button
+                  type="button"
+                  className="pay-account-remove"
+                  onClick={() => removeAccount(index)}
+                  aria-label={`Remove payment account ${index + 1}`}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
+          {form.paymentAccounts.length < 3 && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={addAccount}>
+              + Add another account
+            </button>
+          )}
+          {errors.paymentAccounts && <span className="field-error">{errors.paymentAccounts}</span>}
+        </div>
+
         <div className="form-row">
           <div className="form-group">
-            <label>Capacity *</label>
-            <input type="number" name="capacity" value={form.capacity} onChange={handleChange} min="1" required />
+            <label>Total Capacity</label>
+            <input type="number" value={form.capacity || 0} readOnly disabled />
+            <p className="form-hint">Auto-calculated from the ticket section capacities above.</p>
             {errors.capacity && <span className="field-error">{errors.capacity}</span>}
           </div>
           <div className="form-group">
@@ -186,9 +497,11 @@ export default function CreateEventPage() {
         </div>
 
         <button type="submit" className="btn btn-primary" disabled={loading}>
-          {loading ? "Creating..." : "Create Event"}
+          {isEditing ? (loading ? "Saving..." : "Save Changes") : (loading ? "Creating..." : "Create Event")}
         </button>
       </form>
+      </>
+      )}
     </div>
   );
 }

@@ -1,5 +1,8 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../../utils/api";
+
+import bg1 from "../../assets/images/bg1.jpg";
 
 export default function PendingEventsPage() {
   const [events, setEvents] = useState([]);
@@ -41,44 +44,50 @@ export default function PendingEventsPage() {
   if (loading) return <div className="loading">Loading pending events...</div>;
 
   return (
-    <div className="page">
-      <h1>Pending Events</h1>
+    <div className="admin-wrap">
+      <div className="admin-bg" style={{ backgroundImage: `url(${bg1})` }} />
+      <div className="admin-bg-overlay" />
 
-      {events.length === 0 ? (
-        <p className="empty">No pending events to review.</p>
-      ) : (
-        <div className="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>Title</th>
-                <th>Organizer</th>
-                <th>Category</th>
-                <th>Location</th>
-                <th>Dates</th>
-                <th>Capacity</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {events.map((event) => (
-                <tr key={event.id}>
-                  <td>{event.title}</td>
-                  <td>{event.organizerName}</td>
-                  <td>{event.category}</td>
-                  <td>{event.location}</td>
-                  <td>{event.startDate} - {event.endDate}</td>
-                  <td>{event.capacity}</td>
-                  <td className="actions-cell">
-                    <button onClick={() => approve(event.id)} className="btn btn-success btn-sm">Approve</button>
-                    <button onClick={() => reject(event.id)} className="btn btn-danger btn-sm">Reject</button>
-                  </td>
+      <div className="admin-sub">
+        <Link to="/admin" className="admin-back">← Back to Dashboard</Link>
+        <h1>⏳ Pending Events</h1>
+
+        {events.length === 0 ? (
+          <p className="empty">No pending events to review.</p>
+        ) : (
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Title</th>
+                  <th>Organizer</th>
+                  <th>Category</th>
+                  <th>Location</th>
+                  <th>Dates</th>
+                  <th>Capacity</th>
+                  <th>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {events.map((event) => (
+                  <tr key={event.id}>
+                    <td>{event.title}</td>
+                    <td>{event.organizerName}</td>
+                    <td>{event.category}</td>
+                    <td>{event.location}</td>
+                    <td>{event.startDate} - {event.endDate}</td>
+                    <td>{event.capacity}</td>
+                    <td className="actions-cell">
+                      <button onClick={() => approve(event.id)} className="btn btn-success btn-sm">Approve</button>
+                      <button onClick={() => reject(event.id)} className="btn btn-danger btn-sm">Reject</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
