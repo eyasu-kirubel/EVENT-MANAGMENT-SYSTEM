@@ -4,6 +4,7 @@ import Navbar from "./components/Navbar";
 import ProtectedRoute from "./components/ProtectedRoute";
 import LoginPage from "./pages/login_page";
 import RegisterPage from "./pages/register_page";
+import VerifyEmailPage from "./pages/verify_email";
 import ForgotPasswordPage from "./pages/forgot_password";
 import EventsPage from "./pages/events_page";
 import EventDetailPage from "./pages/event_detail";
@@ -35,6 +36,7 @@ function App() {
           <Route path="/" element={<Navigate to="/events" replace />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/events" element={<EventsPage />} />
           <Route path="/events/:id" element={<EventDetailPage />} />

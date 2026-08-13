@@ -10,7 +10,12 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const saved = localStorage.getItem("user");
     if (saved) {
-      setUser(JSON.parse(saved));
+      try {
+        setUser(JSON.parse(saved));
+      } catch {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+      }
     }
     setLoading(false);
   }, []);
@@ -25,10 +30,7 @@ export function AuthProvider({ children }) {
 
   async function register(fullname, phonenumber, password, birthDate, role, licenceNumber, email) {
     const data = await api.post("/auth/register", { fullname, phonenumber, password, birthDate, role, licenceNumber, email });
-    localStorage.setItem("token", data.token);
-    localStorage.setItem("user", JSON.stringify(data.user));
-    setUser(data.user);
-    return data.user;
+    return data;
   }
 
   function logout() {

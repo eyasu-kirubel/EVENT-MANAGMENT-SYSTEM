@@ -41,7 +41,9 @@ export default function EventDetailPage() {
     try {
       const data = await api.get(`/events/${id}`);
       setEvent(data);
-      if (data.ticketTiers && data.ticketTiers.length > 0) {
+      if (data.tickets && data.tickets.length > 0) {
+        setTierName(data.tickets[0].ticketType);
+      } else if (data.ticketTiers && data.ticketTiers.length > 0) {
         setTierName(data.ticketTiers[0].name);
       } else {
         setTierName("General");
@@ -76,7 +78,14 @@ export default function EventDetailPage() {
 
     setTimeout(async () => {
       try {
-        const data = await api.post("/tickets/book", { eventId: parseInt(id), quantity, tier: tierName, paymentMethod, paidTo: payee.number });
+        const data = await api.post("/tickets/book", {
+          eventId: parseInt(id),
+          quantity,
+          ticketId: activeTier && activeTier.id ? activeTier.id : null,
+          tier: tierName,
+          paymentMethod,
+          paidTo: payee.number,
+        });
         setBookedBookingId(data.bookingId);
         setMessage("Payment successful! Your ticket is confirmed.");
         setStep("success");
@@ -137,13 +146,22 @@ export default function EventDetailPage() {
   if (!event) return <div className="error">Event not found</div>;
 
   const remaining = event.capacity - (event.ticketsSold || 0);
-  const tiers = Array.isArray(event.ticketTiers) ? event.ticketTiers : [];
-  const hasTiers = tiers.length > 0;
+  const tickets = Array.isArray(event.tickets) ? event.tickets : [];
+  const legacyTiers = Array.isArray(event.ticketTiers) ? event.ticketTiers : [];
+  const hasTickets = tickets.length > 0;
+  const hasTiers = hasTickets || legacyTiers.length > 0;
+  const tiers = hasTickets
+    ? tickets.map((t) => {
+        const tRem = Math.max(0, (Number(t.quantity) || 0) - (Number(t.soldQuantity) || 0));
+        return { id: t.id, name: t.ticketType, price: Number(t.price) || 0, remaining: tRem, soldOut: tRem <= 0, description: t.description || "" };
+      })
+    : legacyTiers.map((t) => {
+        const tRem = Math.max(0, Number(t.capacity) - ((event.tierSales && event.tierSales[t.name]) || 0));
+        return { id: null, name: t.name, price: Number(t.price) || 0, remaining: tRem, soldOut: tRem <= 0, description: t.description || "" };
+      });
   const activeTier = hasTiers ? (tiers.find((t) => t.name === tierName) || tiers[0]) : null;
   const unitPrice = activeTier ? activeTier.price : event.price;
-  const tierRemaining = activeTier
-    ? Math.max(0, activeTier.capacity - ((event.tierSales && event.tierSales[activeTier.name]) || 0))
-    : remaining;
+  const tierRemaining = activeTier ? activeTier.remaining : remaining;
   const maxQty = hasTiers ? tierRemaining : remaining;
   const totalPrice = unitPrice * quantity;
   const soldPercent = event.capacity > 0 ? ((event.ticketsSold || 0) / event.capacity) * 100 : 0;
@@ -228,21 +246,18 @@ export default function EventDetailPage() {
               <div className="ev-tier-picker">
                 <span className="ev-qty-label">Select section</span>
                 <div className="ev-tier-options">
-                  {tiers.map((t) => {
-                    const tRem = Math.max(0, t.capacity - ((event.tierSales && event.tierSales[t.name]) || 0));
-                    const soldOut = tRem <= 0;
-                    return (
-                      <button key={t.name} type="button"
-                        className={`ev-tier-card ${tierName === t.name ? "selected" : ""} ${soldOut ? "sold-out" : ""}`}
-                        onClick={() => { if (!soldOut) { setTierName(t.name); setQuantity(1); } }}
-                        disabled={soldOut}
-                      >
-                        <span className="ev-tier-name">{t.name}</span>
-                        <span className="ev-tier-price">{t.price === 0 ? "Free" : `ETB ${t.price}`}</span>
-                        <span className="ev-tier-left">{soldOut ? "Sold out" : `${tRem} left`}</span>
-                      </button>
-                    );
-                  })}
+                  {tiers.map((t) => (
+                    <button key={t.name} type="button"
+                      className={`ev-tier-card ${tierName === t.name ? "selected" : ""} ${t.soldOut ? "sold-out" : ""}`}
+                      onClick={() => { if (!t.soldOut) { setTierName(t.name); setQuantity(1); } }}
+                      disabled={t.soldOut}
+                    >
+                      <span className="ev-tier-name">{t.name}</span>
+                      {t.description && <span className="ev-tier-desc">{t.description}</span>}
+                      <span className="ev-tier-price">{t.price === 0 ? "Free" : `ETB ${t.price}`}</span>
+                      <span className="ev-tier-left">{t.soldOut ? "Sold out" : `${t.remaining} left`}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
             )}

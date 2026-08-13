@@ -17,7 +17,7 @@ function emptyForm() {
     endDate: "",
     photo: "",
     paymentAccounts: [{ method: "telebirr", number: "" }],
-    ticketTiers: [{ name: "General", price: 0, capacity: "" }],
+    ticketTiers: [{ name: "Normal", price: 0, quantity: "", description: "" }],
   };
 }
 
@@ -62,6 +62,9 @@ export default function CreateEventPage() {
           return;
         }
         if (cancelled) return;
+        const fromTickets = Array.isArray(ev.tickets) && ev.tickets.length > 0
+          ? ev.tickets.map((t) => ({ name: t.ticketType, price: t.price, quantity: t.quantity, description: t.description || "" }))
+          : null;
         setForm({
           title: ev.title || "",
           description: ev.description || "",
@@ -77,9 +80,11 @@ export default function CreateEventPage() {
               ? ev.paymentAccounts
               : [{ method: "telebirr", number: "" }],
           ticketTiers:
-            Array.isArray(ev.ticketTiers) && ev.ticketTiers.length > 0
-              ? ev.ticketTiers
-              : [{ name: "General", price: ev.price || 0, capacity: ev.capacity || "" }],
+            fromTickets
+              ? fromTickets
+              : Array.isArray(ev.ticketTiers) && ev.ticketTiers.length > 0
+                ? ev.ticketTiers.map((t) => ({ name: t.name, price: t.price, quantity: t.capacity, description: t.description || "" }))
+                : [{ name: "Normal", price: ev.price || 0, quantity: ev.capacity || "", description: "" }],
         });
         setPhotoPreview(ev.photo || "");
       } catch (err) {
@@ -91,10 +96,10 @@ export default function CreateEventPage() {
     return () => { cancelled = true; };
   }, [editingId]);
 
-  // Total capacity is derived from the ticket sections: whenever a section
-  // capacity changes, the event capacity auto-calculates to the sum.
+  // Total capacity is derived from the ticket types: whenever a type's
+  // quantity changes, the event capacity auto-calculates to the sum.
   useEffect(() => {
-    const total = form.ticketTiers.reduce((sum, t) => sum + (parseInt(t.capacity) || 0), 0);
+    const total = form.ticketTiers.reduce((sum, t) => sum + (parseInt(t.quantity) || 0), 0);
     const current = form.capacity === "" || form.capacity == null ? 0 : parseInt(form.capacity) || 0;
     if (total !== current) {
       setForm((prev) => ({ ...prev, capacity: total || "" }));
@@ -114,7 +119,7 @@ export default function CreateEventPage() {
       form.startDate ||
       form.endDate ||
       form.paymentAccounts.some((a) => a.number && a.number.trim()) ||
-      form.ticketTiers.some((t) => (t.capacity !== "" && t.capacity != null) || Number(t.price) > 0);
+      form.ticketTiers.some((t) => (t.quantity !== "" && t.quantity != null) || Number(t.price) > 0);
     if (!hasContent) return;
 
     const timer = setTimeout(() => {
@@ -200,7 +205,7 @@ export default function CreateEventPage() {
   function addTier() {
     setForm((prev) => ({
       ...prev,
-      ticketTiers: [...prev.ticketTiers, { name: "General", price: 0, capacity: "" }],
+      ticketTiers: [...prev.ticketTiers, { name: "VIP", price: 0, quantity: "", description: "" }],
     }));
     if (errors.ticketTiers) setErrors((prev) => ({ ...prev, ticketTiers: "" }));
   }
@@ -247,8 +252,8 @@ export default function CreateEventPage() {
 
     const filledTiers = form.ticketTiers.filter((t) => t.name && t.name.trim());
     for (const tier of filledTiers) {
-      if (!tier.capacity || parseInt(tier.capacity) < 1) {
-        errs.ticketTiers = `${tier.name} needs a capacity of at least 1`;
+      if (!tier.quantity || parseInt(tier.quantity) < 1) {
+        errs.ticketTiers = `${tier.name} needs a quantity of at least 1`;
         break;
       }
       if (parseFloat(tier.price) < 0) {
@@ -258,10 +263,10 @@ export default function CreateEventPage() {
     }
 
     if (filledTiers.length > 0 && form.capacity) {
-      const tierTotal = filledTiers.reduce((sum, t) => sum + (parseInt(t.capacity) || 0), 0);
+      const tierTotal = filledTiers.reduce((sum, t) => sum + (parseInt(t.quantity) || 0), 0);
       const eventCap = parseInt(form.capacity);
       if (eventCap && tierTotal > eventCap) {
-        errs.ticketTiers = `Ticket sections add up to ${tierTotal}, but the event capacity is ${eventCap}.`;
+        errs.ticketTiers = `Ticket quantities add up to ${tierTotal}, but the event capacity is ${eventCap}.`;
       }
     }
 
@@ -276,15 +281,22 @@ export default function CreateEventPage() {
     setLoading(true);
 
     try {
-      const generalTier = form.ticketTiers.find((t) => t.name === "General");
+      const tickets = form.ticketTiers
+        .filter((t) => t.name && t.name.trim() && parseInt(t.quantity) >= 1)
+        .map((t) => ({
+          ticketType: t.name.trim(),
+          price: parseFloat(t.price) || 0,
+          quantity: parseInt(t.quantity),
+          description: (t.description || "").trim(),
+        }));
+      const minPrice = tickets.length > 0 ? Math.min(...tickets.map((t) => t.price)) : parseFloat(form.price) || 0;
       const payload = {
         ...form,
-        price: generalTier ? parseFloat(generalTier.price) || 0 : parseFloat(form.price) || 0,
+        price: minPrice,
         capacity: parseInt(form.capacity),
         paymentAccounts: form.paymentAccounts.filter((a) => a.number && a.number.trim()),
-        ticketTiers: form.ticketTiers
-          .filter((t) => t.name && t.name.trim() && parseInt(t.capacity) >= 1)
-          .map((t) => ({ name: t.name.trim(), price: parseFloat(t.price) || 0, capacity: parseInt(t.capacity) })),
+        tickets,
+        ticketTiers: tickets.map((t) => ({ name: t.ticketType, price: t.price, capacity: t.quantity })),
       };
       if (isEditing) {
         await api.put(`/events/${editingId}`, payload);
@@ -356,51 +368,62 @@ export default function CreateEventPage() {
         </div>
 
         <div className="form-group">
-          <label>Ticket Sections</label>
-          <p className="form-hint">General is the default section. Set its price and capacity, then optionally add VIP and VVIP. The total capacity is calculated automatically from the sections.</p>
+          <label>Ticket Types</label>
+          <p className="form-hint">Set the price and quantity for each ticket type. The total capacity is calculated automatically from the quantities.</p>
           {form.ticketTiers.map((tier, index) => (
-            <div className="tier-row" key={index}>
-              <select
-                value={tier.name}
-                onChange={(e) => handleTierChange(index, "name", e.target.value)}
-                aria-label={`Tier ${index + 1} name`}
-              >
-                <option value="General">General</option>
-                <option value="VIP">VIP</option>
-                <option value="VVIP">VVIP</option>
-              </select>
-              <input
-                type="number"
-                placeholder="Price"
-                min="0"
-                step="0.01"
-                value={tier.price}
-                onChange={(e) => handleTierChange(index, "price", e.target.value)}
-                aria-label={`Tier ${index + 1} price`}
-              />
-              <input
-                type="number"
-                placeholder="Capacity"
-                min="1"
-                value={tier.capacity}
-                onChange={(e) => handleTierChange(index, "capacity", e.target.value)}
-                aria-label={`Tier ${index + 1} capacity`}
-              />
-              {form.ticketTiers.length > 1 && (
-                <button
-                  type="button"
-                  className="pay-account-remove"
-                  onClick={() => removeTier(index)}
-                  aria-label={`Remove tier ${index + 1}`}
+            <div className="tier-card" key={index}>
+              <div className="tier-row">
+                <select
+                  value={tier.name}
+                  onChange={(e) => handleTierChange(index, "name", e.target.value)}
+                  aria-label={`Ticket type ${index + 1} name`}
                 >
-                  ×
-                </button>
-              )}
+                  <option value="Normal">Normal</option>
+                  <option value="VIP">VIP</option>
+                  <option value="VVIP">VVIP</option>
+                  <option value="General">General</option>
+                </select>
+                <input
+                  type="number"
+                  placeholder="Price (ETB)"
+                  min="0"
+                  step="0.01"
+                  value={tier.price}
+                  onChange={(e) => handleTierChange(index, "price", e.target.value)}
+                  aria-label={`Ticket type ${index + 1} price`}
+                />
+                <input
+                  type="number"
+                  placeholder="Quantity"
+                  min="1"
+                  value={tier.quantity}
+                  onChange={(e) => handleTierChange(index, "quantity", e.target.value)}
+                  aria-label={`Ticket type ${index + 1} quantity`}
+                />
+                {form.ticketTiers.length > 1 && (
+                  <button
+                    type="button"
+                    className="pay-account-remove"
+                    onClick={() => removeTier(index)}
+                    aria-label={`Remove ticket type ${index + 1}`}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+              <input
+                type="text"
+                className="tier-desc-input"
+                placeholder="Description (optional) — e.g. Standard entry, VIP access"
+                value={tier.description || ""}
+                onChange={(e) => handleTierChange(index, "description", e.target.value)}
+                aria-label={`Ticket type ${index + 1} description`}
+              />
             </div>
           ))}
           {form.ticketTiers.length < 3 && (
             <button type="button" className="btn btn-ghost btn-sm" onClick={addTier}>
-              + Add a section
+              + Add a ticket type
             </button>
           )}
           {errors.ticketTiers && <span className="field-error">{errors.ticketTiers}</span>}
@@ -456,7 +479,7 @@ export default function CreateEventPage() {
           <div className="form-group">
             <label>Total Capacity</label>
             <input type="number" value={form.capacity || 0} readOnly disabled />
-            <p className="form-hint">Auto-calculated from the ticket section capacities above.</p>
+            <p className="form-hint">Auto-calculated from the ticket type quantities above.</p>
             {errors.capacity && <span className="field-error">{errors.capacity}</span>}
           </div>
           <div className="form-group">

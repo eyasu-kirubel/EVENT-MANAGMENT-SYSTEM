@@ -62,6 +62,28 @@ CREATE TABLE IF NOT EXISTS reset_codes (
     code TEXT NOT NULL,
     expiresAt TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS email_verifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER NOT NULL,
+    codeHash TEXT NOT NULL,
+    expiresAt TEXT NOT NULL,
+    used INTEGER DEFAULT 0,
+    createdAt TEXT,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS password_resets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER NOT NULL,
+    codeHash TEXT NOT NULL,
+    expiresAt TEXT NOT NULL,
+    used INTEGER DEFAULT 0,
+    resetToken TEXT,
+    resetTokenExpiresAt TEXT,
+    createdAt TEXT,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+);
 `);
 
 
@@ -113,6 +135,76 @@ if (!ticketColumns.includes("tier")) {
 // stays correct even if the event's price/tier prices change later.
 if (!ticketColumns.includes("unitPrice")) {
   db.exec("ALTER TABLE booked_tickets ADD COLUMN unitPrice REAL DEFAULT 0");
+}
+
+// Migration: email verification. New accounts are created with
+// emailVerified = 0 and must verify their email before they can log in.
+// Existing accounts are backfilled to verified (1) so this change never
+// locks out accounts that existed before email verification was introduced.
+if (!userColumns.includes("emailVerified")) {
+  db.exec("ALTER TABLE users ADD COLUMN emailVerified INTEGER DEFAULT 0");
+  db.exec("UPDATE users SET emailVerified = 1");
+}
+
+// Migration: dedicated "tickets" table — one row per ticket TYPE an event
+// offers (Normal / VIP / VVIP / legacy General). This is now the
+// authoritative source for ticket prices and per-type availability.
+// events.ticketTiers (JSON) is kept in sync for backward compatibility with
+// older clients that still read it.
+const ticketsTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tickets'").get();
+if (!ticketsTableExists) {
+  db.exec(`
+CREATE TABLE IF NOT EXISTS tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    eventId INTEGER NOT NULL,
+    ticketType TEXT NOT NULL,
+    price REAL NOT NULL DEFAULT 0,
+    quantity INTEGER NOT NULL DEFAULT 0,
+    soldQuantity INTEGER NOT NULL DEFAULT 0,
+    description TEXT,
+    createdAt TEXT DEFAULT (datetime('now')),
+    updatedAt TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (eventId) REFERENCES events(id) ON DELETE CASCADE,
+    UNIQUE(eventId, ticketType)
+);
+CREATE INDEX IF NOT EXISTS idx_tickets_eventId ON tickets(eventId);
+  `);
+}
+
+// Migration: link each purchase to its ticket-TYPE row. Existing bookings are
+// backfilled below; new bookings set it at booking time. NULL-safe: legacy
+// bookings that predate the tickets table keep working without a link.
+const ticketCols = db.prepare("PRAGMA table_info(booked_tickets)").all().map((c) => c.name);
+if (!ticketCols.includes("ticketId")) {
+  db.exec("ALTER TABLE booked_tickets ADD COLUMN ticketId INTEGER");
+}
+
+// Migration: backfill the tickets table from each event's legacy ticketTiers
+// JSON (only when there are no ticket rows yet, so it never duplicates or
+// overwrites data), computing soldQuantity from existing bookings, and link
+// those bookings to their new ticket rows. Nothing existing is deleted.
+const ticketRowCount = db.prepare("SELECT COUNT(*) AS c FROM tickets").get().c;
+if (ticketRowCount === 0) {
+  const events = db.prepare("SELECT id, ticketTiers FROM events").all();
+  for (const ev of events) {
+    let tiers = [];
+    try {
+      const parsed = JSON.parse(ev.ticketTiers || "[]");
+      if (Array.isArray(parsed)) tiers = parsed;
+    } catch {}
+    for (const t of tiers) {
+      if (!t || !t.name || String(t.name).trim() === "") continue;
+      const sold = db.prepare(
+        "SELECT COALESCE(SUM(quantity), 0) AS s FROM booked_tickets WHERE eventId = ? AND tier = ?"
+      ).get(ev.id, t.name).s;
+      const ins = db.prepare(
+        "INSERT INTO tickets (eventId, ticketType, price, quantity, soldQuantity) VALUES (?, ?, ?, ?, ?)"
+      ).run(ev.id, String(t.name).trim(), Number(t.price) || 0, Number(t.capacity) || 0, sold);
+      db.prepare(
+        "UPDATE booked_tickets SET ticketId = ? WHERE eventId = ? AND tier = ? AND ticketId IS NULL"
+      ).run(ins.lastInsertRowid, ev.id, t.name);
+    }
+  }
 }
 
 const adminExists = db.prepare("SELECT id FROM users WHERE role = 'admin'").get();

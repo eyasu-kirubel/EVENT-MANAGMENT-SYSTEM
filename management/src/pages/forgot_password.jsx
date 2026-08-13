@@ -1,30 +1,68 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { api } from "../utils/api";
 
+const EMAIL_RE = /\S+@\S+\.\S+/;
+
 export default function ForgotPasswordPage() {
-  const [step, setStep] = useState("phone"); // phone | reset | done
-  const [phonenumber, setPhonenumber] = useState("");
+  const [step, setStep] = useState("email"); // email | code | password | done
   const [email, setEmail] = useState("");
-  const [sentCode, setSentCode] = useState("");
   const [code, setCode] = useState("");
+  const [resetToken, setResetToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
 
-  async function handleSendCode(e) {
-    e.preventDefault();
+  async function sendCode() {
     setError("");
+    setMessage("");
+    if (!email.trim()) {
+      setError("Please enter your email.");
+      return;
+    }
+    if (!EMAIL_RE.test(email.trim())) {
+      setError("Please enter a valid email address.");
+      return;
+    }
     setLoading(true);
     try {
-      const res = await api.post("/auth/forgot-password", { phonenumber, email });
-      setSentCode(res.code);
-      setStep("reset");
-      setLoading(false);
+      const res = await api.post("/auth/forgot-password", { email: email.trim() });
+      setMessage(res.message || "If an account exists for this email, a password reset code has been sent.");
+      setStep("code");
     } catch (err) {
       setError(err.message || "Failed to send code.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleSendCode(e) {
+    e.preventDefault();
+    sendCode();
+  }
+
+  async function handleVerifyCode(e) {
+    e.preventDefault();
+    setError("");
+    setMessage("");
+    if (!email.trim()) {
+      setError("Please enter your email.");
+      return;
+    }
+    if (!code || code.length !== 6) {
+      setError("Please enter the 6-digit code.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await api.post("/auth/verify-reset-code", { email: email.trim(), code });
+      setResetToken(res.resetToken);
+      setStep("password");
+    } catch (err) {
+      setError(err.message || "Invalid or expired reset code.");
+    } finally {
       setLoading(false);
     }
   }
@@ -32,12 +70,28 @@ export default function ForgotPasswordPage() {
   async function handleReset(e) {
     e.preventDefault();
     setError("");
+    setMessage("");
+    if (!resetToken) {
+      setError("Session expired. Please request a new reset code.");
+      setStep("code");
+      return;
+    }
+    if (!newPassword || newPassword.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
     setLoading(true);
     try {
-      await api.post("/auth/reset-password", { phonenumber, code, newPassword });
+      await api.post("/auth/reset-password", { resetToken, newPassword });
       setStep("done");
     } catch (err) {
-      setError(err.message || "Failed to reset password.");
+      if (err.message && /reset token/i.test(err.message)) {
+        setResetToken("");
+        setStep("code");
+        setError("Your reset session expired. Please request a new reset code.");
+      } else {
+        setError(err.message || "Failed to reset password.");
+      }
     } finally {
       setLoading(false);
     }
@@ -60,7 +114,7 @@ export default function ForgotPasswordPage() {
             <div className="reg2-features">
               <div className="reg2-feature">
                 <span className="reg2-feature-dot" />
-                <span>Quick verification via SMS</span>
+                <span>Secure verification via email</span>
               </div>
               <div className="reg2-feature">
                 <span className="reg2-feature-dot" />
@@ -79,34 +133,16 @@ export default function ForgotPasswordPage() {
 
         <div className="reg2-right">
           <div className="reg2-form-wrap">
-            {step === "phone" && (
+            {step === "email" && (
               <>
                 <div className="reg2-step-head">
                   <h2>Forgot password</h2>
-                  <p>Enter your phone number and email to receive a reset code</p>
+                  <p>Enter your account email to receive a reset code</p>
                 </div>
 
                 {error && <div className="reg2-error">{error}</div>}
 
                 <form onSubmit={handleSendCode} noValidate>
-                  <div className="reg2-field">
-                    <label>Phone Number</label>
-                    <div className="reg2-input-box">
-                      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                        <rect x="4" y="1" width="10" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" />
-                        <circle cx="9" cy="14" r="1" fill="currentColor" />
-                      </svg>
-                      <input
-                        type="tel"
-                        placeholder=" "
-                        value={phonenumber}
-                        onChange={(e) => setPhonenumber(e.target.value)}
-                        required
-                      />
-                      <label className="reg2-floating">09XXXXXXXX</label>
-                    </div>
-                  </div>
-
                   <div className="reg2-field">
                     <label>Email</label>
                     <div className="reg2-input-box">
@@ -119,6 +155,7 @@ export default function ForgotPasswordPage() {
                         placeholder=" "
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
+                        autoComplete="email"
                         required
                       />
                       <label className="reg2-floating">yourname@example.com</label>
@@ -136,22 +173,17 @@ export default function ForgotPasswordPage() {
               </>
             )}
 
-            {step === "reset" && (
+            {step === "code" && (
               <>
                 <div className="reg2-step-head">
                   <h2>Enter reset code</h2>
-                  <p>A 6-digit code was sent to {phonenumber}</p>
-                  {sentCode && (
-                    <div style={{ background: "#f5f3ff", border: "1.5px dashed #6c5ce7", borderRadius: 12, padding: "12px 16px", marginTop: 12, textAlign: "center" }}>
-                      <div style={{ fontSize: "0.7rem", color: "#999", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 4 }}>Your reset code</div>
-                      <div style={{ fontSize: "2rem", fontWeight: 800, letterSpacing: "8px", color: "#6c5ce7", fontFamily: "monospace" }}>{sentCode}</div>
-                    </div>
-                  )}
+                  <p>A 6-digit code was sent to {email}</p>
+                  {message && <p className="reg2-message">{message}</p>}
                 </div>
 
                 {error && <div className="reg2-error">{error}</div>}
 
-                <form onSubmit={handleReset} noValidate>
+                <form onSubmit={handleVerifyCode} noValidate>
                   <div className="reg2-field">
                     <label>Reset Code</label>
                     <div className="reg2-input-box">
@@ -164,6 +196,8 @@ export default function ForgotPasswordPage() {
                         placeholder=" "
                         value={code}
                         onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
                         required
                         maxLength={6}
                       />
@@ -171,6 +205,30 @@ export default function ForgotPasswordPage() {
                     </div>
                   </div>
 
+                  <button type="submit" className="reg2-btn-primary" disabled={loading}>
+                    {loading ? <span className="reg2-spinner" /> : "Verify Code"}
+                  </button>
+                </form>
+
+                <div className="reg2-footer" style={{ marginTop: 20 }}>
+                  Didn't receive the code?{" "}
+                  <button type="button" className="login-forgot-btn" onClick={sendCode} disabled={loading} style={{ fontSize: "inherit", padding: 0 }}>
+                    Resend
+                  </button>
+                </div>
+              </>
+            )}
+
+            {step === "password" && (
+              <>
+                <div className="reg2-step-head">
+                  <h2>Set new password</h2>
+                  <p>Code verified for {email}</p>
+                </div>
+
+                {error && <div className="reg2-error">{error}</div>}
+
+                <form onSubmit={handleReset} noValidate>
                   <div className="reg2-field">
                     <label>New Password</label>
                     <div className="reg2-input-box">
@@ -184,6 +242,7 @@ export default function ForgotPasswordPage() {
                         placeholder=" "
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
+                        autoComplete="new-password"
                         required
                         minLength={6}
                       />
@@ -217,7 +276,7 @@ export default function ForgotPasswordPage() {
                 </form>
 
                 <div className="reg2-footer" style={{ marginTop: 20 }}>
-                  Didn't receive the code? <button type="button" className="login-forgot-btn" onClick={handleSendCode} style={{ fontSize: "inherit", padding: 0 }}>Resend</button>
+                  Remember your password? <Link to="/login">Sign in</Link>
                 </div>
               </>
             )}

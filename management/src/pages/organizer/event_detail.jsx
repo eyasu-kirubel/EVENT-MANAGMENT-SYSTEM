@@ -44,9 +44,20 @@ export default function OrganizerEventDetail() {
     </div>
   );
 
-  const tiers = Array.isArray(event.ticketTiers) ? event.ticketTiers : [];
-  const hasTiers = tiers.length > 0;
-  const minTierPrice = hasTiers ? Math.min(...tiers.map((t) => Number(t.price) || 0)) : event.price;
+  const tickets = Array.isArray(event.tickets) ? event.tickets : [];
+  const legacyTiers = Array.isArray(event.ticketTiers) ? event.ticketTiers : [];
+  const hasTiers = tickets.length > 0 || legacyTiers.length > 0;
+  const tiers = tickets.length > 0
+    ? tickets.map((t) => {
+        const tRem = Math.max(0, (Number(t.quantity) || 0) - (Number(t.soldQuantity) || 0));
+        return { name: t.ticketType, price: Number(t.price) || 0, quantity: Number(t.quantity) || 0, remaining: tRem, description: t.description || "", soldOut: tRem <= 0 };
+      })
+    : legacyTiers.map((t) => {
+        const sold = (event.tierSales && event.tierSales[t.name]) || 0;
+        const tRem = Math.max(0, Number(t.capacity) - sold);
+        return { name: t.name, price: Number(t.price) || 0, quantity: Number(t.capacity) || 0, remaining: tRem, description: t.description || "", soldOut: tRem <= 0 };
+      });
+  const minTierPrice = tiers.length > 0 ? Math.min(...tiers.map((t) => Number(t.price) || 0)) : event.price;
   const remaining = event.capacity - (event.ticketsSold || 0);
   const soldPercent = event.capacity > 0 ? ((event.ticketsSold || 0) / event.capacity) * 100 : 0;
 
@@ -110,22 +121,19 @@ export default function OrganizerEventDetail() {
           </div>
         </div>
 
-        {/* Ticket Tiers */}
+        {/* Ticket Types */}
         {hasTiers && (
           <div className="ev-tier-panel">
-            <h3>Ticket Sections</h3>
+            <h3>Ticket Types</h3>
             <div className="ev-tier-options">
-              {tiers.map((t) => {
-                const sold = (event.tierSales && event.tierSales[t.name]) || 0;
-                const tRem = Math.max(0, Number(t.capacity) - sold);
-                return (
-                  <div key={t.name} className={`ev-tier-card ${tRem <= 0 ? "sold-out" : ""}`}>
-                    <span className="ev-tier-name">{t.name}</span>
-                    <span className="ev-tier-price">{Number(t.price) === 0 ? "Free" : `ETB ${Number(t.price)}`}</span>
-                    <span className="ev-tier-left">{tRem <= 0 ? "Sold out" : `${tRem} of ${t.capacity} left`}</span>
-                  </div>
-                );
-              })}
+              {tiers.map((t) => (
+                <div key={t.name} className={`ev-tier-card ${t.soldOut ? "sold-out" : ""}`}>
+                  <span className="ev-tier-name">{t.name}</span>
+                  {t.description && <span className="ev-tier-desc">{t.description}</span>}
+                  <span className="ev-tier-price">{Number(t.price) === 0 ? "Free" : `ETB ${Number(t.price)}`}</span>
+                  <span className="ev-tier-left">{t.soldOut ? "Sold out" : `${t.remaining} of ${t.quantity} left`}</span>
+                </div>
+              ))}
             </div>
           </div>
         )}

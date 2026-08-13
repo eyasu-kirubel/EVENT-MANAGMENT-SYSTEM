@@ -143,4 +143,8 @@ vite.config.ts.timestamp-*
 .vite/
 
 *.sqlite
+.env
+.env.*
 
+# Test-mode email outbox (contains codes only used by smoke-test.js)
+.email-test-outbox.json

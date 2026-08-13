@@ -184,7 +184,7 @@ export default function RegisterPage() {
     setGlobalError("");
 
     try {
-      const user = await register(
+      const result = await register(
         form.fullname.trim(),
         form.phonenumber.trim(),
         form.password,
@@ -193,8 +193,8 @@ export default function RegisterPage() {
         form.licenceNumber.trim() || undefined,
         form.email.trim() || undefined
       );
-      if (user.isOrganizer || user.role === "organizer") {
-        navigate("/organizer");
+      if (result && result.emailVerificationRequired) {
+        navigate("/verify-email", { state: { email: form.email.trim() } });
       } else {
         navigate("/events");
       }

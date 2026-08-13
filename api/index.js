@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 
@@ -9,6 +10,7 @@ const attendanceRoutes = require("./routes/attendance");
 const adminRoutes = require("./routes/admin");
 const userRoutes = require("./routes/user");
 const { errorHandler } = require("./middleware/errorHandler");
+const { verifySmtpConnection } = require("./utils/email");
 
 const server = express();
 server.use(cors());
@@ -24,4 +26,7 @@ server.use("/user", userRoutes);
 
 server.use(errorHandler);
 
-server.listen(3000, () => console.log("Server running on port 3000"));
+server.listen(3000, () => {
+  console.log("Server running on port 3000");
+  verifySmtpConnection();
+});
