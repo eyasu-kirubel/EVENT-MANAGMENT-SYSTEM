@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../../utils/api";
 import { CATEGORY_ICONS } from "../../constants/categories";
+import { BsCalendar3, BsGeoAlt, BsPerson } from "react-icons/bs";
 
 function formatDateStr(iso) {
   if (!iso) return "";
@@ -44,20 +45,9 @@ export default function OrganizerEventDetail() {
     </div>
   );
 
-  const tickets = Array.isArray(event.tickets) ? event.tickets : [];
-  const legacyTiers = Array.isArray(event.ticketTiers) ? event.ticketTiers : [];
-  const hasTiers = tickets.length > 0 || legacyTiers.length > 0;
-  const tiers = tickets.length > 0
-    ? tickets.map((t) => {
-        const tRem = Math.max(0, (Number(t.quantity) || 0) - (Number(t.soldQuantity) || 0));
-        return { name: t.ticketType, price: Number(t.price) || 0, quantity: Number(t.quantity) || 0, remaining: tRem, description: t.description || "", soldOut: tRem <= 0 };
-      })
-    : legacyTiers.map((t) => {
-        const sold = (event.tierSales && event.tierSales[t.name]) || 0;
-        const tRem = Math.max(0, Number(t.capacity) - sold);
-        return { name: t.name, price: Number(t.price) || 0, quantity: Number(t.capacity) || 0, remaining: tRem, description: t.description || "", soldOut: tRem <= 0 };
-      });
-  const minTierPrice = tiers.length > 0 ? Math.min(...tiers.map((t) => Number(t.price) || 0)) : event.price;
+  const tiers = Array.isArray(event.ticketTiers) ? event.ticketTiers : [];
+  const hasTiers = tiers.length > 0;
+  const minTierPrice = hasTiers ? Math.min(...tiers.map((t) => Number(t.price) || 0)) : event.price;
   const remaining = event.capacity - (event.ticketsSold || 0);
   const soldPercent = event.capacity > 0 ? ((event.ticketsSold || 0) / event.capacity) * 100 : 0;
 
@@ -71,12 +61,12 @@ export default function OrganizerEventDetail() {
           <img src={event.photo} alt={event.title} className="ev-hero-img" />
         ) : (
           <div className="ev-hero-placeholder">
-            <span>{CATEGORY_ICONS[event.category] || "🎪"}</span>
+            <span>{event.category || "General"}</span>
           </div>
         )}
         <div className="ev-hero-overlay" />
         <div className="ev-hero-content">
-          <span className="ev-hero-category">{CATEGORY_ICONS[event.category] || "🎪"} {event.category}</span>
+          <span className="ev-hero-category">{event.category || "General"} {event.category}</span>
           <h1 className="ev-hero-title">{event.title}</h1>
           <div className="ev-hero-price">
             {hasTiers
@@ -90,19 +80,19 @@ export default function OrganizerEventDetail() {
         {/* Info Cards */}
         <div className="ev-info-grid">
           <div className="ev-info-card">
-            <div className="ev-info-icon">📍</div>
+            <div className="ev-info-icon"><BsGeoAlt /></div>
             <div><span className="ev-info-label">Location</span><span className="ev-info-value">{event.location}</span></div>
           </div>
           <div className="ev-info-card">
-            <div className="ev-info-icon">📅</div>
+            <div className="ev-info-icon"><BsCalendar3 /></div>
             <div><span className="ev-info-label">Start Date</span><span className="ev-info-value">{formatDateStr(event.startDate)}</span></div>
           </div>
           <div className="ev-info-card">
-            <div className="ev-info-icon">🗓</div>
+            <div className="ev-info-icon"><BsCalendar3 /></div>
             <div><span className="ev-info-label">End Date</span><span className="ev-info-value">{formatDateStr(event.endDate)}</span></div>
           </div>
           <div className="ev-info-card">
-            <div className="ev-info-icon">👤</div>
+            <div className="ev-info-icon"><BsPerson /></div>
             <div><span className="ev-info-label">Organizer</span><span className="ev-info-value">{event.organizerName}</span></div>
           </div>
         </div>
@@ -121,19 +111,22 @@ export default function OrganizerEventDetail() {
           </div>
         </div>
 
-        {/* Ticket Types */}
+        {/* Ticket Tiers */}
         {hasTiers && (
           <div className="ev-tier-panel">
-            <h3>Ticket Types</h3>
+            <h3>Ticket Sections</h3>
             <div className="ev-tier-options">
-              {tiers.map((t) => (
-                <div key={t.name} className={`ev-tier-card ${t.soldOut ? "sold-out" : ""}`}>
-                  <span className="ev-tier-name">{t.name}</span>
-                  {t.description && <span className="ev-tier-desc">{t.description}</span>}
-                  <span className="ev-tier-price">{Number(t.price) === 0 ? "Free" : `ETB ${Number(t.price)}`}</span>
-                  <span className="ev-tier-left">{t.soldOut ? "Sold out" : `${t.remaining} of ${t.quantity} left`}</span>
-                </div>
-              ))}
+              {tiers.map((t) => {
+                const sold = (event.tierSales && event.tierSales[t.name]) || 0;
+                const tRem = Math.max(0, Number(t.capacity) - sold);
+                return (
+                  <div key={t.name} className={`ev-tier-card ${tRem <= 0 ? "sold-out" : ""}`}>
+                    <span className="ev-tier-name">{t.name}</span>
+                    <span className="ev-tier-price">{Number(t.price) === 0 ? "Free" : `ETB ${Number(t.price)}`}</span>
+                    <span className="ev-tier-left">{tRem <= 0 ? "Sold out" : `${tRem} of ${t.capacity} left`}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

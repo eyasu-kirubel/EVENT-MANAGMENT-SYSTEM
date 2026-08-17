@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../../utils/api";
+import { BsCalendar3, BsPencil, BsPeople, BsTicketPerforated } from "react-icons/bs";
 
-import bg1 from "../../assets/images/bg1.jpg";
 
 export default function ManageUsersPage() {
   const [users, setUsers] = useState([]);
@@ -101,16 +101,13 @@ export default function ManageUsersPage() {
     }
   }
 
-  if (loading) return <div className="loading">Loading users...</div>;
+  if (loading) return <div className="loading" style={{ color: "#000000" }}>Loading users...</div>;
 
   return (
     <div className="admin-wrap">
-      <div className="admin-bg" style={{ backgroundImage: `url(${bg1})` }} />
-      <div className="admin-bg-overlay" />
-
-      <div className="admin-sub">
+      <div className="admin-sub" style={{ color: "#000000" }}>
         <Link to="/admin" className="admin-back">← Back to Dashboard</Link>
-        <h1>👥 Manage Users</h1>
+        <h1 style={{ color: "#000000", fontWeight: 800 }}><BsPeople style={{ color: "#4527A0" }} /> Manage Users</h1>
 
         {/* Filters */}
         <div className="admin-toolbar">
@@ -121,20 +118,20 @@ export default function ManageUsersPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <select className="admin-filter" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
-            <option value="all">All roles</option>
-            <option value="Customer">Customers</option>
-            <option value="Organizer">Organizers</option>
-            <option value="Admin">Admins</option>
+          <select style={{ color: "#000000", backgroundColor: "#FFFFFF", fontWeight: 600 }} className="admin-filter" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+            <option style={{ color: "#000000", backgroundColor: "#FFFFFF" }} value="all">All roles</option>
+            <option style={{ color: "#000000", backgroundColor: "#FFFFFF" }} value="Customer">Customers</option>
+            <option style={{ color: "#000000", backgroundColor: "#FFFFFF" }} value="Organizer">Organizers</option>
+            <option style={{ color: "#000000", backgroundColor: "#FFFFFF" }} value="Admin">Admins</option>
           </select>
-          <select className="admin-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <select style={{ color: "#000000", backgroundColor: "#FFFFFF", fontWeight: 600 }} className="admin-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="all">All statuses</option>
-            <option value="active">Active</option>
-            <option value="suspended">Suspended</option>
+            <option style={{ color: "#000000", backgroundColor: "#FFFFFF" }} value="active">Active</option>
+            <option style={{ color: "#000000", backgroundColor: "#FFFFFF" }} value="suspended">Suspended</option>
           </select>
         </div>
 
-        <div className="admin-user-count">
+        <div className="admin-user-count" style={{ color: "#000000", fontWeight: 600 }}>
           Showing {filtered.length} of {users.length} users
         </div>
 
@@ -142,12 +139,12 @@ export default function ManageUsersPage() {
           <table>
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Phone</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Activity</th>
-                <th>Actions</th>
+                <th style={{ color: "#000000" }}>Name</th>
+                <th style={{ color: "#000000" }}>Phone</th>
+                <th style={{ color: "#000000" }}>Role</th>
+                <th style={{ color: "#000000" }}>Status</th>
+                <th style={{ color: "#000000" }}>Activity</th>
+                <th style={{ color: "#000000" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -159,12 +156,12 @@ export default function ManageUsersPage() {
                 filtered.map((user) => (
                   <tr key={user.id} className={user.status === "suspended" ? "admin-row-suspended" : ""}>
                     <td>
-                      <div className="admin-user-name">
+                      <div className="admin-user-name" style={{ color: "#000000", fontWeight: 700 }}>
                         <span className="admin-user-avatar">{user.fullname.charAt(0).toUpperCase()}</span>
-                        {user.fullname}
+                        <span style={{ color: "#000000" }}>{user.fullname}</span>
                       </div>
                     </td>
-                    <td>{user.phonenumber}</td>
+                    <td style={{ color: "#000000", fontWeight: 600 }}>{user.phonenumber}</td>
                     <td>
                       <span className={`admin-role-badge ${displayRole(user).toLowerCase()}`}>{displayRole(user)}</span>
                     </td>
@@ -182,6 +179,7 @@ export default function ManageUsersPage() {
                       <button className="admin-act-btn act-view" onClick={() => setViewUser(user)}>View</button>
                       <button className="admin-act-btn act-edit" onClick={() => openEdit(user)}>Edit</button>
                       <select
+                        style={{ color: "#000000", backgroundColor: "#FFFFFF", fontWeight: 600 }}
                         className="admin-role-select"
                         value={displayRole(user)}
                         onChange={(e) => {
@@ -189,9 +187,9 @@ export default function ManageUsersPage() {
                           changeRole(user.id, roleMap[e.target.value]);
                         }}
                       >
-                        <option value="Customer">Customer</option>
-                        <option value="Organizer">Organizer</option>
-                        <option value="Admin">Admin</option>
+                        <option style={{ color: "#000000", backgroundColor: "#FFFFFF" }} value="Customer">Customer</option>
+                        <option style={{ color: "#000000", backgroundColor: "#FFFFFF" }} value="Organizer">Organizer</option>
+                        <option style={{ color: "#000000", backgroundColor: "#FFFFFF" }} value="Admin">Admin</option>
                       </select>
                       <button
                         className={`admin-act-btn ${user.status === "suspended" ? "act-activate" : "act-deactivate"}`}
@@ -232,11 +230,11 @@ export default function ManageUsersPage() {
               <div className="admin-modal-row"><span>User ID</span><strong>#{viewUser.id}</strong></div>
             </div>
             <div className="admin-modal-stats">
-              <div><span>📅</span><strong>{viewUser.eventsCreated ?? 0}</strong><small>Events created</small></div>
-              <div><span>🎫</span><strong>{viewUser.ticketsBooked ?? 0}</strong><small>Tickets booked</small></div>
+              <div><span><BsCalendar3 /></span><strong>{viewUser.eventsCreated ?? 0}</strong><small>Events created</small></div>
+              <div><span><BsTicketPerforated /></span><strong>{viewUser.ticketsBooked ?? 0}</strong><small>Tickets booked</small></div>
             </div>
             <div className="admin-modal-actions">
-              <button className="btn btn-primary btn-sm" onClick={() => { setEditUser(viewUser); setEditForm({ fullname: viewUser.fullname, phonenumber: viewUser.phonenumber, email: viewUser.email || "" }); setViewUser(null); }}>✏️ Edit</button>
+              <button className="btn btn-primary btn-sm" onClick={() => { setEditUser(viewUser); setEditForm({ fullname: viewUser.fullname, phonenumber: viewUser.phonenumber, email: viewUser.email || "" }); setViewUser(null); }}><BsPencil /> Edit</button>
               <button className="btn btn-outline btn-sm" onClick={() => setViewUser(null)}>Close</button>
             </div>
           </div>

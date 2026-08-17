@@ -1,28 +1,8 @@
 // src/pages/LoginPage.jsx
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
-// Import local images
-import bg1 from "../assets/images/bg1.jpg";
-import bg2 from "../assets/images/bg2.jpg";
-import bg3 from "../assets/images/bg3.jpg";
-import bg4 from "../assets/images/bg4.jpg";
-import bg5 from "../assets/images/bg5.jpg";
-import bg6 from "../assets/images/bg6.jpg";
-import bg7 from "../assets/images/bg7.jpg";
-import bg8 from "../assets/images/bg8.jpg";
-
-const BACKGROUND_IMAGES = [
-  bg1,
-  bg2,
-  bg3,
-  bg4,
-  bg5,
-  bg6,
-  bg7,
-  bg8
-];
 
 export default function LoginPage() {
   const [phonenumber, setPhonenumber] = useState("");
@@ -31,17 +11,9 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState("");
-  const [currentBgIndex, setCurrentBgIndex] = useState(0);
   const navigate = useNavigate();
   const { login } = useAuth();
 
-  // Rotate background images
-  useEffect(() => {
-    const bgTimer = setInterval(() => {
-      setCurrentBgIndex((prev) => (prev + 1) % BACKGROUND_IMAGES.length);
-    }, 5000);
-    return () => clearInterval(bgTimer);
-  }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -68,11 +40,7 @@ export default function LoginPage() {
 
   return (
     <div style={styles.container}>
-      <div style={{
-        ...styles.background,
-        backgroundImage: `url(${BACKGROUND_IMAGES[currentBgIndex]})`,
-        transition: 'background-image 3s ease-in-out',
-      }} />
+      <div style={styles.background} />
       <div style={styles.overlay} />
 
       <div style={styles.card}>
@@ -189,7 +157,7 @@ export default function LoginPage() {
                 </button>
               </div>
 
-              <button type="submit" style={styles.submitBtn} disabled={loading}>
+              <button type="submit" className="login-submit-btn" style={styles.submitBtn} disabled={loading}>
                 {loading ? (
                   <span style={styles.spinner} />
                 ) : (
@@ -234,8 +202,7 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundSize: 'cover',
-    backgroundPosition: 'center',
+    background: 'linear-gradient(135deg, #ffffff 0%, #f8f7ff 55%, #f1edff 100%)',
     zIndex: 0,
   },
   overlay: {
@@ -244,7 +211,7 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    background: 'rgba(0, 0, 0, 0.6)',
+    background: 'radial-gradient(circle at 12% 20%, rgba(108,92,231,0.10), transparent 24%), radial-gradient(circle at 88% 80%, rgba(108,92,231,0.08), transparent 28%)',
     zIndex: 1,
   },
   card: {
@@ -258,7 +225,7 @@ const styles = {
     background: 'white',
     borderRadius: '24px',
     overflow: 'hidden',
-    boxShadow: '0 25px 80px rgba(0,0,0,0.5)',
+    boxShadow: '0 20px 60px rgba(54, 39, 105, 0.14)',
     flexShrink: 0,
   },
   left: {
@@ -426,7 +393,7 @@ const styles = {
   submitBtn: {
     width: '100%',
     padding: '14px',
-    background: 'linear-gradient(135deg, #6C5CE7, #5a4bd1)',
+    background: 'linear-gradient(135deg, #6C5CE7 0%, #5135B8 100%)',
     border: 'none',
     borderRadius: '10px',
     color: 'white',
@@ -482,10 +449,26 @@ styleSheet.textContent = `
     transform: translateY(-2px);
     box-shadow: 0 8px 25px rgba(108, 92, 231, 0.3);
   }
-  .submit-btn:disabled {
-    opacity: 0.6;
+  .login-submit-btn {
+    background: #4527A0 !important;
+    color: #FFFFFF !important;
+    opacity: 1 !important;
+    border: none !important;
+    box-shadow: 0 6px 18px rgba(69, 39, 160, 0.25) !important;
+  }
+
+  .login-submit-btn:hover:not(:disabled) {
+    background: #311B92 !important;
+    color: #FFFFFF !important;
+  }
+
+  .login-submit-btn:disabled {
+    background: #4527A0 !important;
+    color: #FFFFFF !important;
+    opacity: 1 !important;
     cursor: not-allowed;
   }
+
   @keyframes spin {
     to { transform: rotate(360deg); }
   }
