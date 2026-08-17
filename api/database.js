@@ -179,6 +179,15 @@ if (!ticketCols.includes("ticketId")) {
   db.exec("ALTER TABLE booked_tickets ADD COLUMN ticketId INTEGER");
 }
 
+// Migration: attendance audit trail — which organizer scanned each booking.
+// scannedBy holds the users.id of the organizer who admitted the ticket
+// (NULL when never scanned). Kept as a plain INTEGER, consistent with the
+// other added columns on this table, so deleting a user who previously
+// scanned a ticket never breaks on a foreign key.
+if (!ticketCols.includes("scannedBy")) {
+  db.exec("ALTER TABLE booked_tickets ADD COLUMN scannedBy INTEGER");
+}
+
 // Migration: backfill the tickets table from each event's legacy ticketTiers
 // JSON (only when there are no ticket rows yet, so it never duplicates or
 // overwrites data), computing soldQuantity from existing bookings, and link

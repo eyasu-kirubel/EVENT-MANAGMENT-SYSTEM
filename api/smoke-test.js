@@ -200,6 +200,7 @@ const verifyEmail = (email, code) => req("POST", "/auth/verify-email", { body: {
   check("POST /auth/login (organizer)", r.status === 200 && r.data.token && r.data.user.isOrganizer === true, r.data);
   const orgToken = r.data.token;
   const orgUserId = r.data.user.id;
+  const orgId = orgUserId;
   trackUser(orgPhone);
 
   // ---- REGISTER ORGANIZER VIA LEGACY role:"organizer" ----
@@ -417,6 +418,7 @@ const verifyEmail = (email, code) => req("POST", "/auth/verify-email", { body: {
   // 7) Book VIP and VVIP by ticketId.
   r = await req("POST", "/tickets/book", { token: userToken, body: { eventId: archEventId, quantity: 1, ticketId: vipT.id } });
   check("POST /tickets/book (VIP by ticketId)", r.status === 201 && r.data.unitPrice === 300, r.data);
+  const vipArchBookingId = r.data.bookingId;
   r = await req("POST", "/tickets/book", { token: userToken, body: { eventId: archEventId, quantity: 1, ticketId: vvipT.id } });
   check("POST /tickets/book (VVIP by ticketId)", r.status === 201 && r.data.unitPrice === 500, r.data);
   const vvipBookingId = r.data.bookingId;
@@ -448,11 +450,18 @@ const verifyEmail = (email, code) => req("POST", "/auth/verify-email", { body: {
   // 12) QR + attendance on a tickets-table booking (unique per purchase).
   r = await req("GET", `/tickets/${normalBookingId}/qr`, { token: userToken });
   check("GET /tickets/:id/qr (ticket-arch svg)", r.status === 200 && r.res.headers.get("content-type").includes("svg"), { status: r.status });
-  const scanPayload2 = JSON.stringify({ ticketId: normalBookingId, eventId: archEventId, userId, event: "Ticket Arch Event", attendee: "y", phone: "z", date: "2026-01-01", qty: 1, tier: "Normal", ts: "2026-01-01T00:00:00Z" });
-  r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: scanPayload2 } });
-  check("POST /attendance/scan (ticket-arch success)", r.status === 200 && r.data.status === "success", r.data);
-  r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: scanPayload2 } });
+
+  // New-format QR carries the per-booking qrCode token. Read it from the DB
+  // (this test has direct DB access) to exercise the token-verification path.
+  const tokenPayload = { ticketId: normalBookingId, eventId: archEventId, userId, event: "Ticket Arch Event", attendee: "y", phone: "z", date: "2026-01-01", qty: 1, tier: "Normal", ts: "2026-01-01T00:00:00Z" };
+  tokenPayload.qrCode = db.prepare("SELECT qrCode FROM booked_tickets WHERE id = ?").get(normalBookingId).qrCode;
+  r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: JSON.stringify(tokenPayload) } });
+  check("POST /attendance/scan (ticket-arch success, token verified)", r.status === 200 && r.data.status === "success" && r.data.message === "Entry allowed." && r.data.scannedBy === orgId, r.data);
+  r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: JSON.stringify(tokenPayload) } });
   check("POST /attendance/scan (ticket-arch duplicate rejected)", r.status === 200 && r.data.status === "duplicate", r.data);
+  const badTokenPayload = { ...tokenPayload, qrCode: "not-the-real-token" };
+  r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: JSON.stringify(badTokenPayload) } });
+  check("POST /attendance/scan (wrong qrCode token -> 400)", r.status === 400, r.data);
 
   // 13) Ticket management endpoints.
   // Add a VIP type to the Normal-only event.
@@ -494,13 +503,19 @@ const verifyEmail = (email, code) => req("POST", "/auth/verify-email", { body: {
   r = await req("GET", `/attendance/event/${newEventId}`, { token: orgToken });
   check("GET /attendance/event/:eventId", r.status === 200 && Array.isArray(r.data.attendees), r.data);
 
+  r = await req("GET", `/attendance/event/${newEventId}`, { token: org2Token });
+  check("GET /attendance/event/:eventId (other organizer -> 404)", r.status === 404, r.data);
+
   r = await req("GET", `/attendance/event/${newEventId}`, { token: userToken });
   check("GET /attendance/event/:eventId (user -> 403)", r.status === 403, r.data);
 
   r = await req("GET", `/attendance/stats/${newEventId}`, { token: orgToken });
   check("GET /attendance/stats/:eventId", r.status === 200 && r.data.capacity !== undefined, r.data);
 
-  // scan the remaining VIP ticket
+  r = await req("GET", `/attendance/stats/${newEventId}`, { token: org2Token });
+  check("GET /attendance/stats/:eventId (other organizer -> 404)", r.status === 404, r.data);
+
+  // scan the remaining VIP ticket (legacy QR payload without qrCode still works)
   const myTickets = (await req("GET", "/tickets/my", { token: userToken })).data;
   const vipTicket = myTickets.find((t) => String(t.eventTitle || "").startsWith("Smoke Event"));
   const scanPayload = JSON.stringify({ ticketId: vipTicket.id, eventId: newEventId, userId, event: "x", attendee: "y", phone: "z", date: "2026-01-01", qty: 1, tier: "VIP", ts: "2026-01-01T00:00:00Z" });
@@ -510,8 +525,53 @@ const verifyEmail = (email, code) => req("POST", "/auth/verify-email", { body: {
   r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: scanPayload } });
   check("POST /attendance/scan (duplicate)", r.status === 200 && r.data.status === "duplicate", r.data);
 
+  // scannedBy audit trail recorded for the successful scan.
+  const scannedRow = db.prepare("SELECT scanned, scannedBy, scannedAt FROM booked_tickets WHERE id = ?").get(vipTicket.id);
+  check("scannedBy audit trail recorded", scannedRow.scanned === 1 && scannedRow.scannedBy === orgId && !!scannedRow.scannedAt, scannedRow);
+
+  // Different organizer tries to scan a ticket for an event they do not own -> 403.
+  r = await req("POST", "/attendance/scan", { token: org2Token, body: { qrData: scanPayload } });
+  check("POST /attendance/scan (other organizer -> 403)", r.status === 403, r.data);
+
+  // Ticket belonging to another event (archEvent, owned by org, not org2) -> 403.
+  r = await req("POST", "/attendance/scan", { token: org2Token, body: { qrData: JSON.stringify({ ticketId: normalBookingId, eventId: archEventId }) } });
+  check("POST /attendance/scan (ticket of another event -> 403)", r.status === 403, r.data);
+
+  // Plain (non-organizer) user cannot scan.
+  r = await req("POST", "/attendance/scan", { token: userToken, body: { qrData: scanPayload } });
+  check("POST /attendance/scan (user -> 403)", r.status === 403, r.data);
+
+  // Unauthenticated request rejected.
+  r = await req("POST", "/attendance/scan", { body: { qrData: scanPayload } });
+  check("POST /attendance/scan (unauthenticated -> 401)", r.status === 401, r.data);
+
+  // Nonexistent ticket.
+  r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: JSON.stringify({ ticketId: 99999999 }) } });
+  check("POST /attendance/scan (nonexistent ticket -> 404)", r.status === 404, r.data);
+
+  // Malformed / missing ticket id.
   r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: "not-json" } });
   check("POST /attendance/scan (bad qr -> 400)", r.status === 400, r.data);
+  r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: JSON.stringify({ foo: 1 }) } });
+  check("POST /attendance/scan (qr without ticketId -> 400)", r.status === 400, r.data);
+  r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: JSON.stringify({ ticketId: "abc" }) } });
+  check("POST /attendance/scan (non-integer ticketId -> 400)", r.status === 400, r.data);
+  r = await req("POST", "/attendance/scan", { token: orgToken });
+  check("POST /attendance/scan (no qrData -> 400)", r.status === 400, r.data);
+
+  // Concurrency: two simultaneous scans of the same fresh ticket -> exactly
+  // one success, the other duplicate (guaranteed by the atomic UPDATE).
+  const racePayload = JSON.stringify({ ticketId: vipArchBookingId, eventId: archEventId });
+  const [race1, race2] = await Promise.all([
+    req("POST", "/attendance/scan", { token: orgToken, body: { qrData: racePayload } }),
+    req("POST", "/attendance/scan", { token: orgToken, body: { qrData: racePayload } }),
+  ]);
+  const raceStatuses = [race1.data.status, race2.data.status].sort().join(",");
+  check("concurrent scan -> exactly one success", raceStatuses === "duplicate,success", { r1: race1.data.status, r2: race2.data.status });
+
+  // Attendee list exposes scannedBy + scanner name for the organizer.
+  r = await req("GET", `/attendance/event/${newEventId}`, { token: orgToken });
+  check("attendee list includes scannedBy", Array.isArray(r.data.attendees) && r.data.attendees.some((a) => a.id === vipTicket.id && a.scanned === 1 && a.scannedBy === orgId), r.data);
 
   // ---- ORGANIZER ----
   r = await req("GET", "/organizer/stats", { token: orgToken });

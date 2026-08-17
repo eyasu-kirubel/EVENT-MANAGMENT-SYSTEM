@@ -145,7 +145,11 @@ function getQr(req, res) {
 
   const user = db.prepare("SELECT fullname, phonenumber FROM users WHERE id = ?").get(ticket.userId);
 
-  const qrPayload = JSON.stringify({
+  // The QR payload identifies the booking by id AND carries the per-booking
+  // random token (booked_tickets.qrCode, a crypto UUID) so the scanner can
+  // verify authenticity. Pre-existing bookings with no qrCode keep the
+  // legacy id-only payload — old printed QRs stay valid.
+  const qrPayload = {
     ticketId: ticket.id,
     eventId: ticket.eventId,
     userId: ticket.userId,
@@ -156,9 +160,12 @@ function getQr(req, res) {
     qty: ticket.quantity,
     tier: ticket.tier || "General",
     ts: ticket.bookingDate,
-  });
+  };
+  if (ticket.qrCode) {
+    qrPayload.qrCode = ticket.qrCode;
+  }
 
-  QRCode.toString(qrPayload, { type: "svg", width: 300, margin: 2 }, (err, svg) => {
+  QRCode.toString(JSON.stringify(qrPayload), { type: "svg", width: 300, margin: 2 }, (err, svg) => {
     if (err) return res.status(500).json({ error: "Failed to generate QR code." });
     res.setHeader("Content-Type", "image/svg+xml");
     res.send(svg);
