@@ -1,9 +1,10 @@
 // src/pages/organizer/OrganizerDashboard.jsx
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../utils/api";
 import { useAuth } from "../../context/AuthContext";
 import { CATEGORY_ICONS } from "../../constants/categories";
+import { BsBarChart, BsCalendar3, BsCheckCircle, BsClock, BsPlusCircle, BsTicketPerforated, BsCollection, BsEye, BsEyeSlash } from "react-icons/bs";
 
 function formatDateStr(iso) {
   if (!iso) return "";
@@ -24,6 +25,7 @@ export default function OrganizerDashboard() {
   const [recentEvents, setRecentEvents] = useState([]);
   const [approvedEvents, setApprovedEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showRevenue, setShowRevenue] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
@@ -58,7 +60,7 @@ export default function OrganizerDashboard() {
     <div className="page">
       <div className="me-header">
         <div>
-          <h1>📊 Organizer Dashboard</h1>
+          <h1><BsBarChart /> Organizer Dashboard</h1>
           <p className="me-subtitle">Welcome back, {user?.fullname || "Organizer"}! Here's what's happening with your events.</p>
         </div>
       </div>
@@ -71,7 +73,7 @@ export default function OrganizerDashboard() {
           onClick={() => navigate("/organizer/events")}
           title="View all events"
         >
-          <span className="me-stat-icon">🎪</span>
+          <span className="me-stat-icon"><BsCalendar3 /></span>
           <div>
             <div className="me-stat-value">{stats.totalEvents}</div>
             <div className="me-stat-label">Total Events</div>
@@ -83,23 +85,35 @@ export default function OrganizerDashboard() {
           onClick={() => navigate("/organizer/analytics")}
           title="View bookings analytics"
         >
-          <span className="me-stat-icon">🎟️</span>
+          <span className="me-stat-icon"><BsTicketPerforated /></span>
           <div>
             <div className="me-stat-value">{stats.totalBookings}</div>
             <div className="me-stat-label">Total Bookings</div>
           </div>
         </div>
         <div
-          className="me-stat dashboard-stat-link"
+          className="me-stat dashboard-stat-link organizer-revenue-stat"
           style={{ cursor: "pointer" }}
           onClick={() => navigate("/organizer/analytics")}
           title="View revenue analytics"
         >
-          <span className="me-stat-icon">💰</span>
-          <div>
-            <div className="me-stat-value">ETB {stats.totalRevenue}</div>
+          <span className="me-stat-icon"><BsBarChart /></span>
+          <div className="organizer-revenue-content">
+            <div className="me-stat-value">{showRevenue ? `ETB ${Number(stats.totalRevenue || 0).toLocaleString()}` : "••••••••"}</div>
             <div className="me-stat-label">Total Revenue</div>
           </div>
+          <button
+            type="button"
+            className="revenue-visibility-btn"
+            aria-label={showRevenue ? "Hide revenue" : "Show revenue"}
+            title={showRevenue ? "Hide revenue" : "Show revenue"}
+            onClick={(event) => {
+              event.stopPropagation();
+              setShowRevenue((visible) => !visible);
+            }}
+          >
+            {showRevenue ? <BsEyeSlash /> : <BsEye />}
+          </button>
         </div>
         <div
           className="me-stat dashboard-stat-link"
@@ -107,7 +121,7 @@ export default function OrganizerDashboard() {
           onClick={() => navigate("/organizer/events")}
           title="View all events"
         >
-          <span className="me-stat-icon">⏳</span>
+          <span className="me-stat-icon"><BsClock /></span>
           <div>
             <div className="me-stat-value">{stats.pendingEvents}</div>
             <div className="me-stat-label">Pending Events</div>
@@ -119,7 +133,7 @@ export default function OrganizerDashboard() {
           onClick={() => navigate("/organizer/events?status=approved")}
           title="View approved events"
         >
-          <span className="me-stat-icon">✅</span>
+          <span className="me-stat-icon"><BsCheckCircle /></span>
           <div>
             <div className="me-stat-value">{approvedEvents.length}</div>
             <div className="me-stat-label">Approved Events</div>
@@ -130,17 +144,17 @@ export default function OrganizerDashboard() {
       {/* Quick Actions */}
       <div className="me-section">
         <div className="me-attendees-head" style={{ borderBottom: "none" }}>
-          <h2>⚡ Quick Actions</h2>
+          <h2><BsPlusCircle /> Quick Actions</h2>
         </div>
         <div className="me-actions" style={{ marginTop: "4px" }}>
-          <button className="me-action me-edit" onClick={() => navigate("/organizer/create")}>
-            ➕ Create Event
-          </button>
+          <Link className="me-action me-edit" to="/organizer/create">
+            <BsPlusCircle /> Create Event
+          </Link>
           <button className="me-action me-attendees" onClick={() => navigate("/organizer/events")}>
-            📋 Manage Events
+            <BsCollection /> Manage Events
           </button>
           <button className="me-action me-attendees" onClick={() => navigate("/organizer/analytics")}>
-            📊 View Analytics
+            <BsBarChart /> View Analytics
           </button>
         </div>
       </div>
@@ -149,7 +163,7 @@ export default function OrganizerDashboard() {
       <div className="me-section">
         <div className="me-attendees-head" style={{ borderBottom: "none" }}>
           <div>
-            <h2>🕑 Recent Events</h2>
+            <h2><BsClock /> Recent Events</h2>
             <p className="me-subtitle">Your latest events at a glance.</p>
           </div>
           <button className="btn btn-outline btn-sm" onClick={() => navigate("/organizer/events")}>
@@ -175,18 +189,18 @@ export default function OrganizerDashboard() {
                       <img src={event.photo} alt={event.title} />
                     ) : (
                       <div className="me-media-placeholder">
-                        <span>{CATEGORY_ICONS[event.category] || "🎪"}</span>
+                        <span>{CATEGORY_ICONS[event.category] || "E"}</span>
                       </div>
                     )}
                     <span className={`me-status ${statusClass}`}>{event.status || "Pending"}</span>
                   </div>
                   <div className="me-card-body">
                     <div className="me-card-top">
-                      <span className="me-category">{CATEGORY_ICONS[event.category] || "🎪"} {event.category}</span>
+                      <span className="me-category">{event.category || "General"}</span>
                     </div>
                     <h3 className="me-title">{event.title}</h3>
-                    <p className="me-meta">📅 {formatDateStr(event.startDate)}</p>
-                    <p className="me-meta">📍 {event.location}</p>
+                    <p className="me-meta"><BsCalendar3 /> {formatDateStr(event.startDate)}</p>
+                    <p className="me-meta"><BsCollection /> {event.location}</p>
                   </div>
                 </div>
               );
@@ -194,12 +208,12 @@ export default function OrganizerDashboard() {
           </div>
         ) : (
           <div className="me-empty" style={{ padding: "30px 10px" }}>
-            <span className="me-empty-icon">🎪</span>
+            <span className="me-empty-icon"><BsCalendar3 /></span>
             <h3>No Events Yet</h3>
             <p>Create your first event and start selling tickets.</p>
-            <button className="btn btn-primary" onClick={() => navigate("/organizer/create")}>
-              + Create Event
-            </button>
+            <Link className="btn btn-primary" to="/organizer/create">
+              <BsPlusCircle /> Create Event
+            </Link>
           </div>
         )}
       </div>

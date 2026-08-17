@@ -2,14 +2,25 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../utils/api";
 import { EVENT_CATEGORIES } from "../../constants/categories";
+import { BsGeoAlt, BsGlobe2, BsLock, BsUnlock } from "react-icons/bs";
 
 const DRAFT_KEY = "eventDraft";
+const CATEGORY_KEY = "organizerEventCategories";
+const EVENT_META_KEY = "eventFrontendMeta";
+
+function getCustomCategories() {
+  try { return JSON.parse(localStorage.getItem(CATEGORY_KEY) || "[]").filter(Boolean); } catch { return []; }
+}
 
 function emptyForm() {
   return {
     title: "",
     description: "",
     category: "General",
+    eventType: "in-person",
+    visibility: "public",
+    privateGuestNames: [],
+    onlineUrl: "",
     location: "",
     price: 0,
     capacity: "",
@@ -33,6 +44,19 @@ function readDraft() {
   }
 }
 
+function saveEventMeta(id, form) {
+  try {
+    const all = JSON.parse(localStorage.getItem(EVENT_META_KEY) || "{}");
+    all[String(id)] = {
+      eventType: form.eventType,
+      visibility: form.visibility,
+      privateGuestNames: Array.isArray(form.privateGuestNames) ? form.privateGuestNames : [],
+      onlineUrl: form.onlineUrl,
+    };
+    localStorage.setItem(EVENT_META_KEY, JSON.stringify(all));
+  } catch {}
+}
+
 export default function CreateEventPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -49,7 +73,6 @@ export default function CreateEventPage() {
   const [loadingEvent, setLoadingEvent] = useState(!!editingId);
   const [photoPreview, setPhotoPreview] = useState("");
 
-  // Edit mode: load the existing event into the form (no draft involved).
   useEffect(() => {
     if (!editingId) return;
     let cancelled = false;
@@ -62,6 +85,8 @@ export default function CreateEventPage() {
           return;
         }
         if (cancelled) return;
+        let meta = {};
+        try { meta = JSON.parse(localStorage.getItem(EVENT_META_KEY) || "{}")[editingId] || {}; } catch {}
         const fromTickets = Array.isArray(ev.tickets) && ev.tickets.length > 0
           ? ev.tickets.map((t) => ({ name: t.ticketType, price: t.price, quantity: t.quantity, description: t.description || "" }))
           : null;
@@ -69,6 +94,10 @@ export default function CreateEventPage() {
           title: ev.title || "",
           description: ev.description || "",
           category: ev.category || "General",
+          eventType: meta.eventType || "in-person",
+          visibility: meta.visibility || "public",
+          privateGuestNames: Array.isArray(meta.privateGuestNames) ? meta.privateGuestNames : [],
+          onlineUrl: meta.onlineUrl || "",
           location: ev.location || "",
           price: ev.price || 0,
           capacity: ev.capacity || "",
@@ -96,8 +125,6 @@ export default function CreateEventPage() {
     return () => { cancelled = true; };
   }, [editingId]);
 
-  // Total capacity is derived from the ticket types: whenever a type's
-  // quantity changes, the event capacity auto-calculates to the sum.
   useEffect(() => {
     const total = form.ticketTiers.reduce((sum, t) => sum + (parseInt(t.quantity) || 0), 0);
     const current = form.capacity === "" || form.capacity == null ? 0 : parseInt(form.capacity) || 0;
@@ -106,9 +133,6 @@ export default function CreateEventPage() {
     }
   }, [form.ticketTiers]);
 
-  // Autosave a draft whenever the organizer types something, so leaving the
-  // page keeps their work. The photo (base64) is not stored to stay under the
-  // localStorage quota. Skipped while editing.
   useEffect(() => {
     if (isEditing) return;
     const hasContent =
@@ -217,15 +241,51 @@ export default function CreateEventPage() {
     }));
   }
 
+  function addPrivateGuest() {
+    setForm((prev) => ({
+      ...prev,
+      privateGuestNames: [...(prev.privateGuestNames || []), ""],
+    }));
+  }
+
+  function updatePrivateGuest(index, value) {
+    setForm((prev) => ({
+      ...prev,
+      privateGuestNames: (prev.privateGuestNames || []).map((name, i) => (i === index ? value : name)),
+    }));
+    if (errors.privateGuestNames) {
+      setErrors((prev) => ({ ...prev, privateGuestNames: "" }));
+    }
+  }
+
+  function removePrivateGuest(index) {
+    setForm((prev) => ({
+      ...prev,
+      privateGuestNames: (prev.privateGuestNames || []).filter((_, i) => i !== index),
+    }));
+  }
+
   function validate() {
     const errs = {};
     if (!form.title.trim()) errs.title = "Title is required";
-    if (!form.location.trim()) errs.location = "Location is required";
+    if (form.eventType === "in-person" && !form.location.trim()) errs.location = "Location is required";
+    if (form.eventType === "online" && !form.onlineUrl.trim()) errs.onlineUrl = "Online event link is required";
     if (!form.capacity || parseInt(form.capacity) < 1) errs.capacity = "Capacity must be at least 1";
     if (!form.startDate) errs.startDate = "Start date is required";
     if (!form.endDate) errs.endDate = "End date is required";
     if (form.startDate && form.endDate && form.endDate < form.startDate) {
       errs.endDate = "End date must be after start date";
+    }
+
+    if (form.visibility === "private") {
+      const guestNames = (form.privateGuestNames || [])
+        .map((name) => String(name || "").trim())
+        .filter(Boolean);
+      if (guestNames.length === 0) {
+        errs.privateGuestNames = "Add at least one invited person's name for a private event";
+      } else if (new Set(guestNames.map((name) => name.toLowerCase())).size !== guestNames.length) {
+        errs.privateGuestNames = "Each invited person's name should be unique";
+      }
     }
 
     const filledAccounts = form.paymentAccounts.filter((a) => a.number && a.number.trim());
@@ -292,17 +352,23 @@ export default function CreateEventPage() {
       const minPrice = tickets.length > 0 ? Math.min(...tickets.map((t) => t.price)) : parseFloat(form.price) || 0;
       const payload = {
         ...form,
+        location: form.eventType === "online" ? (form.location.trim() || "Online Event") : form.location.trim(),
         price: minPrice,
         capacity: parseInt(form.capacity),
         paymentAccounts: form.paymentAccounts.filter((a) => a.number && a.number.trim()),
         tickets,
         ticketTiers: tickets.map((t) => ({ name: t.ticketType, price: t.price, capacity: t.quantity })),
+        privateGuestNames: form.visibility === "private"
+          ? (form.privateGuestNames || []).map((name) => name.trim()).filter(Boolean)
+          : [],
       };
       if (isEditing) {
         await api.put(`/events/${editingId}`, payload);
+        saveEventMeta(editingId, form);
         navigate("/organizer/events");
       } else {
-        await api.post("/events", payload);
+        const created = await api.post("/events", payload);
+        if (created?.id) saveEventMeta(created.id, form);
         localStorage.removeItem(DRAFT_KEY);
         navigate("/organizer");
       }
@@ -360,12 +426,98 @@ export default function CreateEventPage() {
             <label>Category</label>
             <select name="category" value={form.category} onChange={handleChange}>
               <option value="General">General</option>
-              {EVENT_CATEGORIES.map((cat) => (
+              {[...new Set([...EVENT_CATEGORIES, ...getCustomCategories()])].map((cat) => (
                 <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
           </div>
         </div>
+
+        <div className="event-options-grid">
+          <div className="form-group">
+            <label>Event type</label>
+            <div className="choice-grid">
+              <label className={`choice-card ${form.eventType === "in-person" ? "selected" : ""}`}>
+                <input type="radio" name="eventType" value="in-person" checked={form.eventType === "in-person"} onChange={handleChange} />
+                <span><BsGeoAlt /> In-person</span>
+              </label>
+              <label className={`choice-card ${form.eventType === "online" ? "selected" : ""}`}>
+                <input type="radio" name="eventType" value="online" checked={form.eventType === "online"} onChange={handleChange} />
+                <span><BsGlobe2 /> Online</span>
+              </label>
+            </div>
+          </div>
+          <div className="form-group">
+            <label>Visibility</label>
+            <div className="choice-grid">
+              <label className={`choice-card ${form.visibility === "public" ? "selected" : ""}`}>
+                <input type="radio" name="visibility" value="public" checked={form.visibility === "public"} onChange={handleChange} />
+                <span><BsUnlock /> Public</span>
+              </label>
+              <label className={`choice-card ${form.visibility === "private" ? "selected" : ""}`}>
+                <input type="radio" name="visibility" value="private" checked={form.visibility === "private"} onChange={handleChange} />
+                <span><BsLock /> Private</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {form.eventType === "online" && (
+          <div className="form-group">
+            <label>Online event link *</label>
+            <input type="url" name="onlineUrl" value={form.onlineUrl} onChange={handleChange} placeholder="https://..." />
+            {errors.onlineUrl && <span className="field-error">{errors.onlineUrl}</span>}
+          </div>
+        )}
+
+        {form.visibility === "private" && (
+          <div className="private-guest-section">
+            <div className="private-guest-header">
+              <div>
+                <label>Private guest list *</label>
+                <p className="form-hint">Add the names of the people who are invited to attend this private event.</p>
+              </div>
+              <span className="private-guest-badge"><BsLock /> Private</span>
+            </div>
+
+            <div className="notice info">
+              <BsLock /> Only the people you add here are intended to be invited. This guest list is stored on the frontend only.
+            </div>
+
+            <div className="private-guest-list">
+              {(form.privateGuestNames || []).map((guestName, index) => (
+                <div className="private-guest-row" key={index}>
+                  <span className="private-guest-number">{index + 1}</span>
+                  <input
+                    type="text"
+                    value={guestName}
+                    onChange={(e) => updatePrivateGuest(index, e.target.value)}
+                    placeholder="Enter person's full name"
+                    maxLength={100}
+                    aria-label={`Private guest ${index + 1} name`}
+                  />
+                  <button
+                    type="button"
+                    className="pay-account-remove"
+                    onClick={() => removePrivateGuest(index)}
+                    aria-label={`Remove private guest ${index + 1}`}
+                    title="Remove guest"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <button type="button" className="btn btn-ghost btn-sm" onClick={addPrivateGuest}>
+              + Add invited person
+            </button>
+
+            {errors.privateGuestNames && (
+              <span className="field-error">{errors.privateGuestNames}</span>
+            )}
+          </div>
+        )}
 
         <div className="form-group">
           <label>Ticket Types</label>

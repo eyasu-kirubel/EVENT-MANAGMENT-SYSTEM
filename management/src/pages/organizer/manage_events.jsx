@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../utils/api";
 import { CATEGORY_ICONS } from "../../constants/categories";
+import { BsCalendar3, BsPeople, BsPencil, BsPlusCircle, BsTrash3 } from "react-icons/bs";
 
 const FILTERS = [
   { value: "", label: "All" },
@@ -92,7 +93,7 @@ export default function ManageEventsPage() {
           <h1>Manage Events & Attendance</h1>
           <p className="me-subtitle">Keep track of your events, ticket sales and check-ins.</p>
         </div>
-        <Link to="/organizer/create" className="btn btn-primary me-create-btn">+ Create Event</Link>
+        <Link to="/organizer/create" className="btn btn-primary me-create-btn"><BsPlusCircle /> Create Event</Link>
       </div>
 
       <div className="me-filters">
@@ -112,10 +113,10 @@ export default function ManageEventsPage() {
 
       {filteredEvents.length === 0 ? (
         <div className="me-empty">
-          <span className="me-empty-icon">🎪</span>
+          <span className="me-empty-icon"><BsCalendar3 /></span>
           <h3>{statusFilter ? `No ${statusFilter} Events` : "No Events Yet"}</h3>
           <p>{statusFilter ? "No events match this status right now." : "Create your first event and start selling tickets."}</p>
-          <Link to="/organizer/create" className="btn btn-primary">+ Create Event</Link>
+          <Link to="/organizer/create" className="btn btn-primary"><BsPlusCircle /> Create Event</Link>
         </div>
       ) : (
         <div className="me-grid">
@@ -135,7 +136,7 @@ export default function ManageEventsPage() {
                     <img src={event.photo} alt={event.title} />
                   ) : (
                     <div className="me-media-placeholder">
-                      <span>{CATEGORY_ICONS[event.category] || "🎪"}</span>
+                      <span>{event.category || "General"}</span>
                     </div>
                   )}
                   <span className={`me-status ${statusClass}`}>{event.status}</span>
@@ -143,12 +144,12 @@ export default function ManageEventsPage() {
 
                 <div className="me-card-body">
                   <div className="me-card-top">
-                    <span className="me-category">{CATEGORY_ICONS[event.category] || "🎪"} {event.category}</span>
+                    <span className="me-category">{event.category || "General"} {event.category}</span>
                     <span className="me-price">{price === 0 ? "Free" : `ETB ${price}`}</span>
                   </div>
                   <h3 className="me-title">{event.title}</h3>
-                  <p className="me-meta">📅 {formatDateStr(event.startDate)}{event.endDate ? ` — ${formatDateStr(event.endDate)}` : ""}</p>
-                  <p className="me-meta">📍 {event.location}</p>
+                  <p className="me-meta"><BsCalendar3 /> {formatDateStr(event.startDate)}{event.endDate ? ` — ${formatDateStr(event.endDate)}` : ""}</p>
+                  <p className="me-meta"><BsCalendar3 /> {event.location}</p>
 
                   <div className="me-progress">
                     <div className={`me-progress-fill ${barClass}`} style={{ width: `${pct}%` }} />
@@ -163,13 +164,13 @@ export default function ManageEventsPage() {
                       className={`me-action me-attendees ${selectedEvent === event.id ? "active" : ""}`}
                       onClick={() => viewAttendees(event.id)}
                     >
-                      👥 Attendees
+                      <BsPeople /> Attendees
                     </button>
                     <button className="me-action me-edit" onClick={() => navigate(`/organizer/create?edit=${event.id}`)}>
-                      ✏️ Edit
+                      <BsPencil /> Edit
                     </button>
                     <button className="me-action me-delete" onClick={() => handleDelete(event.id)}>
-                      🗑 Delete
+                      <BsTrash3 /> Delete
                     </button>
                   </div>
                 </div>
@@ -183,7 +184,7 @@ export default function ManageEventsPage() {
         <div className="me-attendees-panel">
           <div className="me-attendees-head">
             <div>
-              <h2>👥 Attendees</h2>
+              <h2><BsPeople /> Attendees</h2>
               <p className="me-subtitle">
                 {events.find((e) => e.id === selectedEvent)?.title} · {attendees.length} registered
               </p>
@@ -197,7 +198,7 @@ export default function ManageEventsPage() {
             <div className="loading" style={{ padding: "30px 10px" }}>Loading attendees...</div>
           ) : attendees.length === 0 ? (
             <div className="me-empty" style={{ padding: "30px 10px" }}>
-              <span className="me-empty-icon">🎫</span>
+              <span className="me-empty-icon"><BsPeople /></span>
               <h3>No Attendees Yet</h3>
               <p>Tickets sold for this event will show up here.</p>
             </div>

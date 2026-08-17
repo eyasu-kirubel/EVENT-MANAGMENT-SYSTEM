@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../utils/api";
 
-import bg1 from "../../assets/images/bg1.jpg";
 
 export default function PendingEventsPage() {
   const [events, setEvents] = useState([]);
@@ -45,12 +44,9 @@ export default function PendingEventsPage() {
 
   return (
     <div className="admin-wrap">
-      <div className="admin-bg" style={{ backgroundImage: `url(${bg1})` }} />
-      <div className="admin-bg-overlay" />
-
       <div className="admin-sub">
         <Link to="/admin" className="admin-back">← Back to Dashboard</Link>
-        <h1>⏳ Pending Events</h1>
+        <h1>Pending Events</h1>
 
         {events.length === 0 ? (
           <p className="empty">No pending events to review.</p>

@@ -149,3 +149,6 @@ vite.config.ts.timestamp-*
 # Test-mode email outbox (contains codes only used by smoke-test.js)
 .email-test-outbox.json
 api/db.sqlite.backup-20260813-112032 api/db.sqlite.backup-20260813-152725
+
+# Database backups
+api/db.sqlite.backup-*

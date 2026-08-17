@@ -1,45 +1,39 @@
 import { Link } from "react-router-dom";
-import { useState } from "react";
+import { BsCalendar3, BsHeart, BsHeartFill, BsGeoAlt, BsGlobe2, BsLock } from "react-icons/bs";
+import { useMemo } from "react";
 
 const CATEGORY_ICONS = {
-  Concert: "🎵", Seminar: "🎓", Workshop: "🔧", Conference: "🎵",
-  Sports: "⚽", Exhibition: "🖼", Networking: "🤝", Art: "🎨",
-  "Kids Zone": "🧸", Food: "🍕", Cultural: "🌍", Fashion: "👗",
-  Business: "💼", General: "📋",
+  Concert: "", Seminar: "", Workshop: "", Conference: "", Sports: "",
+  Exhibition: "", Networking: "", Art: "", "Kids Zone": "", Food: "",
+  Cultural: "", Fashion: "", Business: "", General: "",
 };
 
-export default function EventCard({ event, index }) {
-  const [liked, setLiked] = useState(false);
-  const delay = Math.min(index * 0.06, 0.3);
+export default function EventCard({ event, index = 0, liked = false, onFavorite }) {
+  const delay = Math.min(index * 0.04, 0.25);
+  const image = useMemo(() => event.photo || null, [event.photo]);
+  const price = Number(event.price) || 0;
+  let meta = {};
+  try { meta = JSON.parse(localStorage.getItem("eventFrontendMeta") || "{}")[String(event.id)] || {}; } catch {}
 
   return (
-    <Link to={`/events/${event.id}`} className="g-card" style={{ animationDelay: `${delay}s` }}>
-      <div className="g-card-img-wrap">
-        {event.photo ? (
-          <img src={event.photo} alt={event.title} className="g-card-img" />
-        ) : (
-          <div className="g-card-placeholder">{CATEGORY_ICONS[event.category] || "✨"}</div>
-        )}
-        <span className="g-card-badge">{CATEGORY_ICONS[event.category] || "✨"} {event.category}</span>
-        <button
-          className={`g-card-like ${liked ? "liked" : ""}`}
-          onClick={(e) => { e.preventDefault(); setLiked(!liked); }}
-        >
-          <svg width="18" height="18" viewBox="0 0 18 18" fill={liked ? "#ff4757" : "none"}>
-            <path d="M9 15.5C9 15.5 2.5 11.5 2.5 7C2.5 4.5 4.5 3 6.5 3C8 3 9 4 9 4C9 4 10 3 11.5 3C13.5 3 15.5 4.5 15.5 7C15.5 11.5 9 15.5 9 15.5Z" stroke={liked ? "#ff4757" : "rgba(255,255,255,0.8)"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-      </div>
-      <div className="g-card-body">
-        <h3 className="g-card-title">{event.title}</h3>
-        <p className="g-card-desc">
-          {event.description || `${event.location} · ${event.startDate}`}
-        </p>
-        <div className="g-card-footer">
-          <span className="g-card-price">{event.price === 0 ? "Free" : `ETB ${event.price}`}</span>
-          <span className="g-card-date">{event.startDate}</span>
+    <article className="event-card" style={{ animationDelay: `${delay}s` }}>
+      <Link to={`/events/${event.id}`} className="event-card-link">
+        <div className="event-card-media">
+          {image ? <img src={image} alt={event.title} /> : <div className="event-card-placeholder">{CATEGORY_ICONS[event.category] || "E"}</div>}
+          <span className="event-card-category">{event.category || "General"}</span>
+          {meta.eventType === "online" && <span className="event-card-type"><BsGlobe2 /> Online</span>}
+          {meta.visibility === "private" && <span className="event-card-type private"><BsLock /> Private</span>}
         </div>
-      </div>
-    </Link>
+        <div className="event-card-body">
+          <h3>{event.title}</h3>
+          <p className="event-card-description">{event.description || "Discover this event and reserve your ticket."}</p>
+          <div className="event-card-meta"><span><BsCalendar3 /> {event.startDate}</span><span><BsGeoAlt /> {event.location}</span></div>
+          <div className="event-card-footer"><strong>{price === 0 ? "Free" : `ETB ${price}`}</strong><span>View details</span></div>
+        </div>
+      </Link>
+      <button className={`event-card-favorite ${liked ? "liked" : ""}`} onClick={() => onFavorite?.(event.id)} aria-label={liked ? "Remove favorite" : "Add favorite"}>
+        {liked ? <BsHeartFill /> : <BsHeart />}
+      </button>
+    </article>
   );
 }

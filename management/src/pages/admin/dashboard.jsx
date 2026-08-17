@@ -1,34 +1,18 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../utils/api";
+import { BsCheckCircle, BsClockHistory, BsPeople, BsTicketPerforated, BsCollection, BsShieldLock } from "react-icons/bs";
 
-import bg1 from "../../assets/images/bg1.jpg";
-import bg2 from "../../assets/images/bg2.jpg";
-import bg3 from "../../assets/images/bg3.jpg";
-import bg4 from "../../assets/images/bg4.jpg";
-import bg5 from "../../assets/images/bg5.jpg";
-import bg6 from "../../assets/images/bg6.jpg";
-import bg7 from "../../assets/images/bg7.jpg";
-import bg8 from "../../assets/images/bg8.jpg";
-import bg9 from "../../assets/images/bg9.jpg";
-
-const BACKGROUND_IMAGES = [bg1, bg2, bg3, bg4, bg5, bg6, bg7, bg8, bg9];
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [bgIndex, setBgIndex] = useState(0);
   const [listMode, setListMode] = useState(null);
   const [events, setEvents] = useState(null);
   const [eventsLoading, setEventsLoading] = useState(false);
 
   useEffect(() => {
     loadStats();
-  }, []);
-
-  useEffect(() => {
-    const timer = setInterval(() => setBgIndex((i) => (i + 1) % BACKGROUND_IMAGES.length), 6000);
-    return () => clearInterval(timer);
   }, []);
 
   async function loadStats() {
@@ -63,12 +47,12 @@ export default function AdminDashboard() {
   if (loading) return <div className="loading">Loading dashboard...</div>;
 
   const statCards = [
-    { icon: "👥", value: stats?.totalUsers, label: "Customers", to: "/admin/users?role=Customer" },
-    { icon: "🎪", value: stats?.totalOrganizers, label: "Organizers", to: "/admin/users?role=Organizer" },
-    { icon: "📅", value: stats?.totalEvents, label: "Total Events", action: () => toggleList("all") },
-    { icon: "⏳", value: stats?.pendingEvents, label: "Pending Approval", to: "/admin/pending" },
-    { icon: "✅", value: stats?.approvedEvents, label: "Approved Events", action: () => toggleList("approved") },
-    { icon: "🎫", value: stats?.totalTickets, label: "Tickets Sold", to: "/admin/tickets" },
+    { icon: BsPeople, value: stats?.totalUsers, label: "Customers", to: "/admin/users?role=Customer" },
+    { icon: BsCollection, value: stats?.totalOrganizers, label: "Organizers", to: "/admin/users?role=Organizer" },
+    { icon: BsCollection, value: stats?.totalEvents, label: "Total Events", action: () => toggleList("all") },
+    { icon: BsClockHistory, value: stats?.pendingEvents, label: "Pending Approval", to: "/admin/pending" },
+    { icon: BsCheckCircle, value: stats?.approvedEvents, label: "Approved Events", action: () => toggleList("approved") },
+    { icon: BsTicketPerforated, value: stats?.totalTickets, label: "Tickets Sold", to: "/admin/tickets" },
   ];
 
   const listEvents =
@@ -77,38 +61,35 @@ export default function AdminDashboard() {
       : listMode === "approved"
         ? (events || []).filter((e) => String(e.status) === "Approved")
         : [];
-  const listTitle = listMode === "all" ? "📅 All Events" : "✅ Approved Events";
+  const listTitle = listMode === "all" ? "All Events" : "Approved Events";
   const listCount = listMode === "all" ? stats?.totalEvents : stats?.approvedEvents;
 
   return (
     <div className="admin-wrap">
-      <div className="admin-bg" style={{ backgroundImage: `url(${BACKGROUND_IMAGES[bgIndex]})` }} />
-      <div className="admin-bg-overlay" />
-
       <div className="admin-hero">
-        <span className="admin-hero-badge">🛡️ Admin Panel</span>
+        <span className="admin-hero-badge"><BsShieldLock /> Admin Panel</span>
         <h1 className="admin-hero-title">Admin <span>Dashboard</span></h1>
         <p className="admin-hero-sub">Monitor users, events and approvals across the platform.</p>
       </div>
 
       {stats && (
         <div className="admin-stats">
-          {statCards.map((s) =>
+          {statCards.map(({ icon: Icon, ...s }) =>
             s.to ? (
               <Link className="admin-stat" key={s.label} to={s.to}>
-                <div className="admin-stat-icon">{s.icon}</div>
+                <div className="admin-stat-icon"><Icon /></div>
                 <h3>{s.value}</h3>
                 <p>{s.label}</p>
               </Link>
             ) : s.action ? (
               <button className="admin-stat" key={s.label} onClick={s.action} style={{ cursor: "pointer", textAlign: "center", fontFamily: "inherit", outline: "none" }}>
-                <div className="admin-stat-icon">{s.icon}</div>
+                <div className="admin-stat-icon"><Icon /></div>
                 <h3>{s.value}</h3>
                 <p>{s.label}</p>
               </button>
             ) : (
               <div className="admin-stat" key={s.label}>
-                <div className="admin-stat-icon">{s.icon}</div>
+                <div className="admin-stat-icon"><Icon /></div>
                 <h3>{s.value}</h3>
                 <p>{s.label}</p>
               </div>
@@ -175,9 +156,49 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      <style>{`
+        /* FINAL FIX: quick-action text must remain readable in both light and dark modes. */
+        .admin-wrap .admin-quick-card,
+        body.dark-mode .admin-wrap .admin-quick-card {
+          opacity: 1 !important;
+          filter: none !important;
+        }
+        .admin-wrap .admin-quick-card h4,
+        body.dark-mode .admin-wrap .admin-quick-card h4 {
+          color: #24204f !important;
+          opacity: 1 !important;
+          -webkit-text-fill-color: #24204f !important;
+          text-shadow: none !important;
+        }
+        .admin-wrap .admin-quick-card p,
+        body.dark-mode .admin-wrap .admin-quick-card p {
+          color: #596174 !important;
+          opacity: 1 !important;
+          -webkit-text-fill-color: #596174 !important;
+          text-shadow: none !important;
+        }
+        .admin-wrap .admin-quick-icon,
+        body.dark-mode .admin-wrap .admin-quick-icon {
+          color: #596174 !important;
+          opacity: 1 !important;
+        }
+        .admin-wrap .admin-quick-icon svg,
+        body.dark-mode .admin-wrap .admin-quick-icon svg {
+          color: #596174 !important;
+          opacity: 1 !important;
+          stroke: currentColor !important;
+        }
+        .admin-wrap .admin-quick-arrow,
+        body.dark-mode .admin-wrap .admin-quick-arrow {
+          color: #4527a0 !important;
+          opacity: 1 !important;
+          -webkit-text-fill-color: #4527a0 !important;
+        }
+      `}</style>
+
       <div className="admin-quick">
         <Link to="/admin/pending" className="admin-quick-card">
-          <span className="admin-quick-icon">⏳</span>
+          <span className="admin-quick-icon"><BsClockHistory /></span>
           <div>
             <h4>Review Pending Events</h4>
             <p>Approve or reject new event submissions.</p>
@@ -185,7 +206,7 @@ export default function AdminDashboard() {
           <span className="admin-quick-arrow">→</span>
         </Link>
         <Link to="/admin/users" className="admin-quick-card">
-          <span className="admin-quick-icon">👥</span>
+          <span className="admin-quick-icon"><BsPeople /></span>
           <div>
             <h4>Manage Users</h4>
             <p>Change roles or remove accounts.</p>
@@ -193,7 +214,7 @@ export default function AdminDashboard() {
           <span className="admin-quick-arrow">→</span>
         </Link>
         <Link to="/admin/tickets" className="admin-quick-card">
-          <span className="admin-quick-icon">🎫</span>
+          <span className="admin-quick-icon"><BsTicketPerforated /></span>
           <div>
             <h4>Tickets by Event</h4>
             <p>See how many tickets each event sold.</p>

@@ -2,7 +2,9 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../utils/api";
 
-import bg1 from "../../assets/images/bg1.jpg";
+const TEXT = "#24164f";
+const MUTED = "#4b5563";
+const HEADING = "#1f1147";
 
 export default function TicketsByEventPage() {
   const [rows, setRows] = useState([]);
@@ -23,70 +25,71 @@ export default function TicketsByEventPage() {
     }
   }
 
-  if (loading) return <div className="loading">Loading ticket data...</div>;
+  if (loading) return (
+    <div className="loading" style={{ color: TEXT, fontWeight: 600 }}>
+      Loading ticket data...
+    </div>
+  );
 
   const totalTickets = rows.reduce((sum, r) => sum + (r.ticketsSold ?? 0), 0);
   const totalRevenue = rows.reduce((sum, r) => sum + (r.revenue ?? 0), 0);
 
   return (
-    <div className="admin-wrap">
-      <div className="admin-bg" style={{ backgroundImage: `url(${bg1})` }} />
-      <div className="admin-bg-overlay" />
-
+    <div className="admin-wrap" style={{ color: TEXT }}>
       <div className="admin-sub">
-        <Link to="/admin" className="admin-back">← Back to Dashboard</Link>
-        <h1>Tickets by Event</h1>
-        <p className="admin-sub-hint">How many tickets each event has sold, and the revenue it generated.</p>
+        <Link to="/admin" className="admin-back" style={{ color: TEXT, fontWeight: 700 }}>← Back to Dashboard</Link>
+        <h1 style={{ color: HEADING }}>Tickets by Event</h1>
+        <p className="admin-sub-hint" style={{ color: MUTED }}>How many tickets each event has sold, and the revenue it generated.</p>
 
         <div className="admin-sub-stats">
           <div className="admin-sub-stat">
-            <h3>{totalTickets}</h3>
-            <p>Total tickets sold</p>
+            <h3 style={{ color: HEADING }}>{totalTickets}</h3>
+            <p style={{ color: MUTED }}>Total tickets sold</p>
           </div>
           <div className="admin-sub-stat">
-            <h3>${Number(totalRevenue).toLocaleString(undefined, { minimumFractionDigits: 2 })}</h3>
-            <p>Total revenue</p>
+            <h3 style={{ color: HEADING }}>${Number(totalRevenue).toLocaleString(undefined, { minimumFractionDigits: 2 })}</h3>
+            <p style={{ color: MUTED }}>Total revenue</p>
           </div>
         </div>
 
         {rows.length === 0 ? (
-          <p className="empty">No events found.</p>
+          <p className="empty" style={{ color: MUTED }}>No events found.</p>
         ) : (
           <div className="table-container">
             <table>
               <thead>
                 <tr>
-                  <th>Event</th>
-                  <th>Organizer</th>
-                  <th>Category</th>
-                  <th>Date</th>
-                  <th>Capacity</th>
-                  <th>Tickets Sold</th>
-                  <th>Sections</th>
-                  <th>Revenue</th>
+                  <th style={{ color: HEADING }}>Event</th>
+                  <th style={{ color: HEADING }}>Organizer</th>
+                  <th style={{ color: HEADING }}>Category</th>
+                  <th style={{ color: HEADING }}>Date</th>
+                  <th style={{ color: HEADING }}>Capacity</th>
+                  <th style={{ color: HEADING }}>Tickets Sold</th>
+                  <th style={{ color: HEADING }}>Sections</th>
+                  <th style={{ color: HEADING }}>Revenue</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    <td className="admin-event-title">{r.title}</td>
-                    <td>{r.organizerName}</td>
-                    <td>{r.category}</td>
-                    <td>{r.startDate}</td>
-                    <td>{r.capacity}</td>
-                    <td className="admin-sold-cell">{r.ticketsSold}</td>
+                    <td className="admin-event-title" style={{ color: TEXT, fontWeight: 700 }}>{r.title}</td>
+                    <td style={{ color: TEXT }}>{r.organizerName}</td>
+                    <td style={{ color: TEXT }}>{r.category}</td>
+                    <td style={{ color: TEXT }}>{r.startDate}</td>
+                    <td style={{ color: TEXT }}>{r.capacity}</td>
+                    <td className="admin-sold-cell" style={{ color: TEXT, fontWeight: 700 }}>{r.ticketsSold}</td>
                     <td>
                       {r.tiers && r.tiers.length > 0 ? (
                         <div className="admin-tier-chips">
                           {r.tiers.map((t) => (
-                            <span key={t.name} className="admin-tier-chip">{t.name}: {t.sold}</span>
+                            <span key={t.name} className="admin-tier-chip" style={{ color: TEXT }}>{t.name}: {t.sold}</span>
                           ))}
                         </div>
                       ) : (
-                        <span className="admin-revenue-cell">—</span>
+                        <span className="admin-revenue-cell" style={{ color: MUTED }}>—</span>
                       )}
                     </td>
-                    <td className="admin-revenue-cell">${Number(r.revenue).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    <td className="admin-revenue-cell" style={{ color: TEXT, fontWeight: 700 }}>${Number(r.revenue).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                   </tr>
                 ))}
               </tbody>
