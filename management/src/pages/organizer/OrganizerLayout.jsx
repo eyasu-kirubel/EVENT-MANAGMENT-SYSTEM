@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import {
@@ -10,22 +10,43 @@ import {
   BsCollection,
   BsGear,
   BsGrid1X2,
+  BsHeart,
   BsQrCodeScan,
   BsPlusCircle,
   BsTags,
+  BsTicketPerforated,
   BsBoxArrowRight,
 } from "react-icons/bs";
 
-const links = [
+const organizerLinks = [
   { to: "/organizer", label: "Dashboard", icon: BsGrid1X2, end: true },
-  { to: "/organizer/browse", label: "Browse Events", icon: BsCalendar3 },
-  { to: "/organizer/create", label: "Create Event", icon: BsPlusCircle },
   { to: "/organizer/events", label: "Manage Events", icon: BsCollection },
+  { to: "/organizer/create", label: "Create Event", icon: BsPlusCircle },
   { to: "/organizer/categories", label: "Categories", icon: BsTags },
   { to: "/organizer/scanner", label: "QR Scanner", icon: BsQrCodeScan },
   { to: "/organizer/analytics", label: "Analytics", icon: BsBarChart },
-  { to: "/organizer/settings", label: "Settings", icon: BsGear },
+  { to: "/organizer/organizer-settings", label: "Settings", icon: BsGear },
 ];
+
+const customerLinks = [
+  { to: "/organizer/browse", label: "Events", icon: BsCalendar3 },
+  { to: "/organizer/my-bookings", label: "My Bookings", icon: BsTicketPerforated },
+  { to: "/organizer/favorites", label: "Favorites", icon: BsHeart },
+  { to: "/organizer/customer-settings", label: "Settings", icon: BsGear },
+];
+
+function SidebarNavLink({ to, label, icon: Icon, end }) {
+  const location = useLocation();
+  const isActive = end
+    ? location.pathname === to
+    : location.pathname.startsWith(to) || (to === "/organizer/browse" && location.pathname === "/organizer/browse");
+  return (
+    <NavLink to={to} end={end} className={`dashboard-nav-link ${isActive ? "active" : ""}`}>
+      <Icon />
+      <span>{label}</span>
+    </NavLink>
+  );
+}
 
 export default function OrganizerLayout() {
   const { user, logout } = useAuth();
@@ -49,11 +70,17 @@ export default function OrganizerLayout() {
         </div>
 
         <nav className="dashboard-nav" aria-label="Organizer navigation">
-          {links.map(({ to, label, icon: Icon, end }) => (
-            <NavLink key={to} to={to} end={end} className={({ isActive }) => `dashboard-nav-link ${isActive ? "active" : ""}`}>
-              <Icon />
-              <span>{label}</span>
-            </NavLink>
+          {organizerLinks.map(({ to, label, icon: Icon, end }) => (
+            <SidebarNavLink key={to} to={to} label={label} icon={Icon} end={end} />
+          ))}
+        </nav>
+
+        <div className="sidebar-section-divider" />
+
+        <nav className="dashboard-nav" aria-label="Customer navigation">
+          <span className="sidebar-section-label">Customer</span>
+          {customerLinks.map(({ to, label, icon: Icon }) => (
+            <SidebarNavLink key={to} to={to} label={label} icon={Icon} />
           ))}
         </nav>
 

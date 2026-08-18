@@ -19,7 +19,7 @@ function emptyForm() {
     category: "General",
     eventType: "in-person",
     visibility: "public",
-    privateGuestNames: [],
+    privateGuests: [],
     onlineUrl: "",
     location: "",
     price: 0,
@@ -50,7 +50,7 @@ function saveEventMeta(id, form) {
     all[String(id)] = {
       eventType: form.eventType,
       visibility: form.visibility,
-      privateGuestNames: Array.isArray(form.privateGuestNames) ? form.privateGuestNames : [],
+      privateGuests: Array.isArray(form.privateGuests) ? form.privateGuests : [],
       onlineUrl: form.onlineUrl,
     };
     localStorage.setItem(EVENT_META_KEY, JSON.stringify(all));
@@ -95,8 +95,8 @@ export default function CreateEventPage() {
           description: ev.description || "",
           category: ev.category || "General",
           eventType: meta.eventType || "in-person",
-          visibility: meta.visibility || "public",
-          privateGuestNames: Array.isArray(meta.privateGuestNames) ? meta.privateGuestNames : [],
+          visibility: ev.visibility || meta.visibility || "public",
+          privateGuests: Array.isArray(meta.privateGuests) ? meta.privateGuests : [],
           onlineUrl: meta.onlineUrl || "",
           location: ev.location || "",
           price: ev.price || 0,
@@ -244,24 +244,24 @@ export default function CreateEventPage() {
   function addPrivateGuest() {
     setForm((prev) => ({
       ...prev,
-      privateGuestNames: [...(prev.privateGuestNames || []), ""],
+      privateGuests: [...(prev.privateGuests || []), { fullname: "", phonenumber: "" }],
     }));
   }
 
-  function updatePrivateGuest(index, value) {
+  function updatePrivateGuest(index, field, value) {
     setForm((prev) => ({
       ...prev,
-      privateGuestNames: (prev.privateGuestNames || []).map((name, i) => (i === index ? value : name)),
+      privateGuests: (prev.privateGuests || []).map((g, i) => (i === index ? { ...g, [field]: value } : g)),
     }));
-    if (errors.privateGuestNames) {
-      setErrors((prev) => ({ ...prev, privateGuestNames: "" }));
+    if (errors.privateGuests) {
+      setErrors((prev) => ({ ...prev, privateGuests: "" }));
     }
   }
 
   function removePrivateGuest(index) {
     setForm((prev) => ({
       ...prev,
-      privateGuestNames: (prev.privateGuestNames || []).filter((_, i) => i !== index),
+      privateGuests: (prev.privateGuests || []).filter((_, i) => i !== index),
     }));
   }
 
@@ -278,13 +278,22 @@ export default function CreateEventPage() {
     }
 
     if (form.visibility === "private") {
-      const guestNames = (form.privateGuestNames || [])
-        .map((name) => String(name || "").trim())
-        .filter(Boolean);
-      if (guestNames.length === 0) {
-        errs.privateGuestNames = "Add at least one invited person's name for a private event";
-      } else if (new Set(guestNames.map((name) => name.toLowerCase())).size !== guestNames.length) {
-        errs.privateGuestNames = "Each invited person's name should be unique";
+      const guests = (form.privateGuests || [])
+        .filter((g) => g.phonenumber && String(g.phonenumber).trim());
+      if (guests.length === 0) {
+        errs.privateGuests = "Add at least one guest's phone number for a private event";
+      } else {
+        const phones = guests.map((g) => String(g.phonenumber).trim());
+        if (new Set(phones).size !== phones.length) {
+          errs.privateGuests = "Each guest must have a unique phone number";
+        }
+        for (const phone of phones) {
+          const digits = phone.replace(/\D/g, "");
+          if (digits.length !== 10) {
+            errs.privateGuests = "Each phone number must be 10 digits (09XXXXXXXX)";
+            break;
+          }
+        }
       }
     }
 
@@ -351,15 +360,24 @@ export default function CreateEventPage() {
         }));
       const minPrice = tickets.length > 0 ? Math.min(...tickets.map((t) => t.price)) : parseFloat(form.price) || 0;
       const payload = {
-        ...form,
+        title: form.title,
+        description: form.description,
+        category: form.category,
         location: form.eventType === "online" ? (form.location.trim() || "Online Event") : form.location.trim(),
         price: minPrice,
         capacity: parseInt(form.capacity),
+        startDate: form.startDate,
+        endDate: form.endDate,
+        photo: form.photo,
         paymentAccounts: form.paymentAccounts.filter((a) => a.number && a.number.trim()),
         tickets,
         ticketTiers: tickets.map((t) => ({ name: t.ticketType, price: t.price, capacity: t.quantity })),
-        privateGuestNames: form.visibility === "private"
-          ? (form.privateGuestNames || []).map((name) => name.trim()).filter(Boolean)
+        visibility: form.visibility,
+        guests: form.visibility === "private"
+          ? (form.privateGuests || []).filter((g) => g.phonenumber && String(g.phonenumber).trim()).map((g) => ({
+              fullname: (g.fullname || "").trim(),
+              phonenumber: String(g.phonenumber).trim(),
+            }))
           : [],
       };
       if (isEditing) {
@@ -475,26 +493,32 @@ export default function CreateEventPage() {
             <div className="private-guest-header">
               <div>
                 <label>Private guest list *</label>
-                <p className="form-hint">Add the names of the people who are invited to attend this private event.</p>
+                <p className="form-hint">Add phone numbers (and optionally names) of people invited to this private event. Registered users will receive tickets automatically.</p>
               </div>
               <span className="private-guest-badge"><BsLock /> Private</span>
             </div>
 
-            <div className="notice info">
-              <BsLock /> Only the people you add here are intended to be invited. This guest list is stored on the frontend only.
-            </div>
-
             <div className="private-guest-list">
-              {(form.privateGuestNames || []).map((guestName, index) => (
-                <div className="private-guest-row" key={index}>
+              {(form.privateGuests || []).map((guest, index) => (
+                <div className="private-guest-row" key={index} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <span className="private-guest-number">{index + 1}</span>
                   <input
                     type="text"
-                    value={guestName}
-                    onChange={(e) => updatePrivateGuest(index, e.target.value)}
-                    placeholder="Enter person's full name"
+                    value={guest.phonenumber || ""}
+                    onChange={(e) => updatePrivateGuest(index, "phonenumber", e.target.value)}
+                    placeholder="Phone number (required)"
+                    maxLength={20}
+                    style={{ flex: 1, minWidth: 0 }}
+                    aria-label={`Private guest ${index + 1} phone number`}
+                  />
+                  <input
+                    type="text"
+                    value={guest.fullname || ""}
+                    onChange={(e) => updatePrivateGuest(index, "fullname", e.target.value)}
+                    placeholder="Full name (optional)"
                     maxLength={100}
-                    aria-label={`Private guest ${index + 1} name`}
+                    style={{ flex: 1, minWidth: 0 }}
+                    aria-label={`Private guest ${index + 1} full name`}
                   />
                   <button
                     type="button"
@@ -513,8 +537,8 @@ export default function CreateEventPage() {
               + Add invited person
             </button>
 
-            {errors.privateGuestNames && (
-              <span className="field-error">{errors.privateGuestNames}</span>
+            {errors.privateGuests && (
+              <span className="field-error">{errors.privateGuests}</span>
             )}
           </div>
         )}

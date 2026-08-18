@@ -110,6 +110,33 @@ if (!eventColumns.includes("paymentAccounts")) {
   db.exec("ALTER TABLE events ADD COLUMN paymentAccounts TEXT");
 }
 
+// Migration: visibility — 'public' (default, shown to everyone) or 'private'
+// (only visible to the organizer and invited guests).
+if (!eventColumns.includes("visibility")) {
+  db.exec("ALTER TABLE events ADD COLUMN visibility TEXT DEFAULT 'public'");
+}
+
+// Migration: private_event_guests — tracks who is invited to a private event.
+// userId is set when the guest is a registered user; NULL for unregistered.
+const pegExists = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'private_event_guests'").get();
+if (!pegExists) {
+  db.exec(`
+CREATE TABLE IF NOT EXISTS private_event_guests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    eventId INTEGER NOT NULL,
+    userId INTEGER,
+    fullname TEXT,
+    phonenumber TEXT NOT NULL,
+    createdAt TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (eventId) REFERENCES events(id) ON DELETE CASCADE,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE(eventId, phonenumber)
+);
+CREATE INDEX IF NOT EXISTS idx_peg_eventId ON private_event_guests(eventId);
+CREATE INDEX IF NOT EXISTS idx_peg_userId ON private_event_guests(userId);
+  `);
+}
+
 // Migration: record how/who a booking was paid with.
 const ticketColumns = db.prepare("PRAGMA table_info(booked_tickets)").all().map((c) => c.name);
 if (!ticketColumns.includes("paymentMethod")) {
@@ -219,8 +246,7 @@ if (ticketRowCount === 0) {
 const adminExists = db.prepare("SELECT id FROM users WHERE role = 'admin'").get();
 if (!adminExists) {
   db.prepare(
-    "INSERT INTO users (fullname, phonenumber, password, role) VALUES (?, ?, ?, ?)"
-  ).run("Admin", "0900000000", hashPassword("admin123"), "admin");
-
+    "INSERT INTO users (fullname, phonenumber, password, role, emailVerified) VALUES (?, ?, ?, ?, ?)"
+  ).run("Admin", "0900000000", hashPassword("admin123"), "admin", 1);
 }
 module.exports = db;

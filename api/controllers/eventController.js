@@ -1,3 +1,4 @@
+const crypto = require("node:crypto");
 const db = require("../database");
 const { runInTransaction } = require("../utils/transaction");
 const {
@@ -60,17 +61,41 @@ function syncEventTicketTiers(eventId) {
 // ── Events (public) ──
 
 function listEvents(req, res) {
-  const events = db.prepare("SELECT * FROM events WHERE status = 'Approved' ORDER BY startDate ASC").all();
+  const events = db.prepare("SELECT * FROM events WHERE status = 'Approved' AND (visibility IS NULL OR visibility != 'private') ORDER BY startDate ASC").all();
   res.json(events.map((e) => decorateEvent({
     ...e,
     ticketsSold: getEventAttendeeCount(e.id),
   })));
 }
 
+// ── Private events for a specific user ──
+// Returns private events the user is invited to (not the organizer).
+function listMyPrivateEvents(userId) {
+  return db.prepare(`
+    SELECT e.* FROM events e
+    JOIN private_event_guests peg ON peg.eventId = e.id
+    WHERE peg.userId = ? AND e.status = 'Approved' AND e.visibility = 'private'
+  `).all(userId);
+}
+
 function getEvent(req, res) {
   const event = db.prepare("SELECT * FROM events WHERE id = ? AND status = 'Approved'").get(req.params.id);
   if (!event) {
     return res.status(404).json({ error: "Event not found." });
+  }
+
+  // Private event visibility: only the organizer and invited users can see it.
+  if (event.visibility === 'private') {
+    const isOrganizer = req.user && req.user.id === event.organizerId;
+    let isGuest = false;
+    if (req.user) {
+      isGuest = !!db.prepare(
+        "SELECT 1 FROM private_event_guests WHERE eventId = ? AND userId = ?"
+      ).get(event.id, req.user.id);
+    }
+    if (!isOrganizer && !isGuest) {
+      return res.status(404).json({ error: "Event not found." });
+    }
   }
 
   // event.organizerId is now a users.id directly, so the organizer's name
@@ -108,7 +133,7 @@ function getMyEvents(req, res) {
 }
 
 function createEvent(req, res) {
-  const { title, description, category, location, price, capacity, startDate, endDate, photo, paymentAccounts } = req.body;
+  const { title, description, category, location, price, capacity, startDate, endDate, photo, paymentAccounts, visibility, guests } = req.body;
 
   if (!title || !location || !capacity || !startDate || !endDate) {
     return res.status(400).json({ error: "title, location, capacity, startDate and endDate are required." });
@@ -117,6 +142,27 @@ function createEvent(req, res) {
   const dateError = validateEventDates(startDate, endDate);
   if (dateError) {
     return res.status(400).json({ error: dateError });
+  }
+
+  const eventVisibility = visibility === 'private' ? 'private' : 'public';
+
+  // Validate guest list for private events.
+  const guestList = Array.isArray(guests) ? guests : [];
+  if (eventVisibility === 'private') {
+    if (guestList.length === 0) {
+      return res.status(400).json({ error: "A private event requires at least one guest." });
+    }
+    const phones = [];
+    for (const g of guestList) {
+      const phone = String(g.phonenumber || "").trim();
+      if (!phone) {
+        return res.status(400).json({ error: "Each guest must have a phone number." });
+      }
+      phones.push(phone);
+    }
+    if (new Set(phones).size !== phones.length) {
+      return res.status(400).json({ error: "Duplicate phone numbers in the guest list." });
+    }
   }
 
   const accounts = Array.isArray(paymentAccounts)
@@ -139,24 +185,88 @@ function createEvent(req, res) {
   }
 
   let eventId;
+  let registeredGuests = [];
+  let unregisteredGuests = [];
+
   try {
     eventId = runInTransaction(() => {
       const result = db.prepare(
-        "INSERT INTO events (title, description, category, location, price, capacity, startDate, endDate, photo, paymentAccount, paymentAccounts, ticketTiers, organizerId, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending')"
-      ).run(title, description || "", category || "General", location, price || 0, capacity, startDate, endDate, photo || "", firstAccount, JSON.stringify(accounts), JSON.stringify(ticketsToJson(defs)), req.user.id);
+        "INSERT INTO events (title, description, category, location, price, capacity, startDate, endDate, photo, paymentAccount, paymentAccounts, ticketTiers, organizerId, status, visibility) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?)"
+      ).run(title, description || "", category || "General", location, price || 0, capacity, startDate, endDate, photo || "", firstAccount, JSON.stringify(accounts), JSON.stringify(ticketsToJson(defs)), req.user.id, eventVisibility);
       const id = Number(result.lastInsertRowid);
+
+      // Create ticket type rows.
       for (const d of defs) {
         db.prepare(
           "INSERT INTO tickets (eventId, ticketType, price, quantity, description) VALUES (?, ?, ?, ?, ?)"
         ).run(id, d.ticketType, d.price, d.quantity, d.description);
       }
+
+      // For private events: look up guests and auto-create tickets for registered users.
+      if (eventVisibility === 'private' && guestList.length > 0) {
+        // Determine which ticket type to auto-assign: first defined tier, or "General".
+        const autoTicketRow = defs.length > 0
+          ? db.prepare("SELECT * FROM tickets WHERE eventId = ? ORDER BY id ASC LIMIT 1").get(id)
+          : null;
+
+        for (const g of guestList) {
+          const phone = String(g.phonenumber || "").trim();
+          const name = String(g.fullname || "").trim();
+          const userRow = db.prepare("SELECT id, fullname FROM users WHERE phonenumber = ?").get(phone);
+
+          if (userRow) {
+            // Registered user — create a ticket automatically.
+            db.prepare(
+              "INSERT OR IGNORE INTO private_event_guests (eventId, userId, fullname, phonenumber) VALUES (?, ?, ?, ?)"
+            ).run(id, userRow.id, userRow.fullname || name, phone);
+
+            let bookingId = null;
+            if (autoTicketRow) {
+              const qrCode = crypto.randomUUID();
+              const bookingDate = new Date().toISOString();
+              const bkResult = db.prepare(
+                "INSERT INTO booked_tickets (userId, eventId, quantity, qrCode, bookingDate, tier, unitPrice, ticketId) VALUES (?, ?, 1, ?, ?, ?, ?, ?)"
+              ).run(userRow.id, id, qrCode, bookingDate, autoTicketRow.ticketType, Number(autoTicketRow.price) || 0, autoTicketRow.id);
+              db.prepare(
+                "UPDATE tickets SET soldQuantity = soldQuantity + 1, updatedAt = datetime('now') WHERE id = ?"
+              ).run(autoTicketRow.id);
+              bookingId = Number(bkResult.lastInsertRowid);
+            }
+
+            registeredGuests.push({
+              phonenumber: phone,
+              fullname: userRow.fullname || name,
+              userId: userRow.id,
+              bookingId,
+            });
+          } else {
+            // Unregistered user — record the invitation.
+            db.prepare(
+              "INSERT OR IGNORE INTO private_event_guests (eventId, userId, fullname, phonenumber) VALUES (?, NULL, ?, ?)"
+            ).run(id, name || null, phone);
+            unregisteredGuests.push({
+              phonenumber: phone,
+              fullname: name || null,
+              registrationLink: "/register",
+            });
+          }
+        }
+      }
+
       return id;
     });
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
 
-  res.status(201).json({ id: eventId, title, status: "Pending" });
+  res.status(201).json({
+    id: eventId,
+    title,
+    status: "Pending",
+    visibility: eventVisibility,
+    registeredGuests,
+    unregisteredGuests,
+  });
 }
 
 function updateEvent(req, res) {
@@ -368,6 +478,30 @@ function deleteEventTicket(req, res) {
   res.json({ message: "Ticket type deleted." });
 }
 
+// ── Private event guest list (organizer only) ──
+
+function listEventGuests(req, res) {
+  const event = db.prepare("SELECT * FROM events WHERE id = ? AND organizerId = ?").get(req.params.id, req.user.id);
+  if (!event) {
+    return res.status(404).json({ error: "Event not found." });
+  }
+  if (event.visibility !== 'private') {
+    return res.status(400).json({ error: "This is not a private event." });
+  }
+
+  const guests = db.prepare(`
+    SELECT peg.id, peg.fullname, peg.phonenumber, peg.userId,
+           CASE WHEN bt.id IS NOT NULL THEN 1 ELSE 0 END AS hasTicket,
+           bt.id AS bookingId, bt.tier AS ticketType, bt.unitPrice
+    FROM private_event_guests peg
+    LEFT JOIN booked_tickets bt ON bt.eventId = peg.eventId AND bt.userId = peg.userId
+    WHERE peg.eventId = ?
+    ORDER BY peg.id ASC
+  `).all(event.id);
+
+  res.json({ eventId: event.id, title: event.title, guests });
+}
+
 module.exports = {
   listEvents,
   getEvent,
@@ -379,4 +513,5 @@ module.exports = {
   addEventTicket,
   updateEventTicket,
   deleteEventTicket,
+  listEventGuests,
 };

@@ -48,4 +48,18 @@ function requireOrganizer(req, res, next) {
   next();
 }
 
-module.exports = { authenticate, requireRole, requireOrganizer };
+// Reads the Authorization Bearer token if present and attaches req.user.
+// Unlike authenticate, this does NOT return 401 when the token is missing —
+// it simply leaves req.user undefined so the caller can decide what to do.
+function optionalAuth(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith("Bearer ")) return next();
+  const data = tokens.get(auth.slice(7));
+  if (!data) return next();
+  const row = db.prepare("SELECT * FROM users WHERE id = ?").get(data.id);
+  if (!row || row.status === "suspended") return next();
+  req.user = toPublicUser(row);
+  next();
+}
+
+module.exports = { authenticate, optionalAuth, requireRole, requireOrganizer };

@@ -74,6 +74,7 @@ function decorateEvent(event) {
   } catch {}
   return {
     ...event,
+    visibility: event.visibility || "public",
     paymentAccount: accounts.length > 0 ? accounts[0].number : event.paymentAccount || null,
     paymentAccounts: accounts,
     ticketTiers: parseTicketTiers(event),

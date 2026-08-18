@@ -1,3 +1,4 @@
+const crypto = require("node:crypto");
 const db = require("../database");
 const { hashPassword, verifyPassword } = require("../utils/password");
 const { runInTransaction } = require("../utils/transaction");
@@ -176,6 +177,36 @@ async function register(req, res) {
           licenceNumber,
           email
         );
+      }
+
+      // Link pending private-event guest invitations for this phone number.
+      const pendingGuests = db
+        .prepare("SELECT * FROM private_event_guests WHERE phonenumber = ? AND userId IS NULL")
+        .all(phonenumber);
+
+      for (const pg of pendingGuests) {
+        db.prepare("UPDATE private_event_guests SET userId = ?, fullname = COALESCE(fullname, ?) WHERE id = ?")
+          .run(newUserId, fullname, pg.id);
+
+        const event = db.prepare("SELECT * FROM events WHERE id = ?").get(pg.eventId);
+        if (event) {
+          const autoTicket = db
+            .prepare("SELECT * FROM tickets WHERE eventId = ? ORDER BY id ASC LIMIT 1")
+            .get(pg.eventId);
+          if (autoTicket) {
+            const remaining = Number(autoTicket.quantity) - Number(autoTicket.soldQuantity);
+            if (remaining > 0) {
+              const qrCode = crypto.randomUUID();
+              const bookingDate = new Date().toISOString();
+              db.prepare(
+                "INSERT INTO booked_tickets (userId, eventId, quantity, qrCode, bookingDate, tier, unitPrice, ticketId) VALUES (?, ?, 1, ?, ?, ?, ?, ?)"
+              ).run(newUserId, pg.eventId, qrCode, bookingDate, autoTicket.ticketType, Number(autoTicket.price) || 0, autoTicket.id);
+              db.prepare(
+                "UPDATE tickets SET soldQuantity = soldQuantity + 1, updatedAt = datetime('now') WHERE id = ?"
+              ).run(autoTicket.id);
+            }
+          }
+        }
       }
 
       return newUserId;

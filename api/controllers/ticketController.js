@@ -32,6 +32,17 @@ function book(req, res) {
     return res.status(404).json({ error: "Event not found." });
   }
 
+  // Private event: only invited guests or the organizer can book.
+  if (event.visibility === 'private') {
+    const isOrganizer = req.user.id === event.organizerId;
+    const isGuest = !!db.prepare(
+      "SELECT 1 FROM private_event_guests WHERE eventId = ? AND userId = ?"
+    ).get(event.id, req.user.id);
+    if (!isOrganizer && !isGuest) {
+      return res.status(404).json({ error: "Event not found." });
+    }
+  }
+
   // Resolve the ticket TYPE row. Explicit ticketId is the primary path; a
   // legacy tier name is matched against the tickets table when present so
   // old clients keep working. Events with no tickets rows fall back to the

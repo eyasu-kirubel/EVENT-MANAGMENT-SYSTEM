@@ -43,10 +43,10 @@ function formatDate(value) {
 }
 
 
-export default function EventsPage({ showBack = false }) {
+export default function EventsPage({ showBack = false, initialTab }) {
   const { user, updateUser } = useAuth();
   const [searchParams] = useSearchParams();
-  const activeTab = searchParams.get("tab") || "events";
+  const activeTab = searchParams.get("tab") || initialTab || "events";
 
   const [events, setEvents] = useState([]);
   const [tickets, setTickets] = useState([]);

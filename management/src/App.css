@@ -11004,6 +11004,8 @@ body {
 .sidebar-user-copy span { color: var(--ui-muted); font-size: 10px; }
 .sidebar-logout { border: 0; background: transparent; color: #9aa1b0; padding: 7px; border-radius: 8px; }
 .sidebar-logout:hover { background: #fff0f2; color: var(--ui-danger); }
+.sidebar-section-divider { height: 1px; background: var(--ui-border); margin: 4px 12px; }
+.sidebar-section-label { padding: 10px 12px 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--ui-muted); }
 .sidebar-toggle { position: fixed; left: 232px; top: 22px; z-index: 110; width: 34px; height: 34px; border: 1px solid var(--ui-border); background: #fff; color: var(--ui-muted); border-radius: 50%; box-shadow: 0 5px 14px rgba(32,37,54,.08); display: grid; place-items: center; transition: left .25s ease; }
 .dashboard-main { margin-left: 250px; min-height: 100vh; padding: 28px 34px 50px; transition: margin-left .25s ease; }
 .dashboard-topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }

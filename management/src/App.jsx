@@ -66,9 +66,12 @@ function AppContent() {
             <Route path="events" element={<ManageEventsPage />} />
             <Route path="event/:id" element={<OrganizerEventDetail />} />
             <Route path="analytics" element={<OrganizerAnalytics />} />
-            <Route path="settings" element={<OrganizerSettings />} />
+            <Route path="organizer-settings" element={<OrganizerSettings />} />
             <Route path="categories" element={<OrganizerCategories />} />
             <Route path="scanner" element={<OrganizerScanner />} />
+            <Route path="my-bookings" element={<EventsPage showBack initialTab="my-events" />} />
+            <Route path="favorites" element={<EventsPage showBack initialTab="favorites" />} />
+            <Route path="customer-settings" element={<UserSettings />} />
           </Route>
 
           <Route path="/admin" element={<ProtectedRoute roles={["admin"]}><AdminLayout /></ProtectedRoute>}>

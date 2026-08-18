@@ -83,7 +83,7 @@ const verifyEmail = (email, code) => req("POST", "/auth/verify-email", { body: {
   };
   const testEvents = [];
   const existingPhone = db.prepare("SELECT phonenumber FROM users ORDER BY id LIMIT 1").get()?.phonenumber;
-  const existingEventId = db.prepare("SELECT id FROM events ORDER BY id LIMIT 1").get()?.id ?? 1;
+  const existingEventId = db.prepare("SELECT id FROM events WHERE status = 'Approved' AND visibility = 'public' ORDER BY id LIMIT 1").get()?.id ?? 1;
 
   // ---- AUTH ----
   let r = await req("GET", `/auth/check-phone/${userPhone}`);
@@ -627,6 +627,187 @@ const verifyEmail = (email, code) => req("POST", "/auth/verify-email", { body: {
   // admin authz: non-admin must get 403
   r = await req("GET", "/admin/users", { token: userToken });
   check("GET /admin/users (user -> 403)", r.status === 403, r.data);
+
+  // ---- PRIVATE EVENTS ----
+  // 1) Create a private event with registered + unregistered guests.
+  const privatePhone = "091" + (Date.now() % 10000000 + 1000000);
+  const unregPhone = "093" + (Date.now() % 10000000 + 2000000);
+  // Register a guest user first so they are "registered".
+  const guestStamp = "guest" + stamp;
+  const guestPhone = "091" + (Date.now() % 10000000 + 3000000);
+  const guestEmail = `${guestStamp}@example.com`;
+  await register({ fullname: "Private Guest", phonenumber: guestPhone, password: "secret123", birthDate: "1995-05-05", email: guestEmail });
+  const guestUserId = trackUser(guestPhone);
+  await verifyEmail(guestEmail, getTestCode(guestEmail));
+
+  r = await req("POST", "/events", {
+    token: orgToken,
+    body: {
+      title: "Private Event " + stamp, description: "invite only", category: "Music", location: "Addis",
+      price: 200, capacity: 50, startDate: future, endDate: later,
+      paymentAccounts: [{ method: "Telebirr", number: "0911223344" }],
+      ticketTiers: [{ name: "Normal", price: 200, quantity: 40 }, { name: "VIP", price: 500, quantity: 10 }],
+      visibility: "private",
+      guests: [
+        { fullname: "Private Guest", phonenumber: guestPhone },
+        { fullname: "Unregistered Person", phonenumber: unregPhone },
+      ],
+    },
+  });
+  check("POST /events (private)", r.status === 201 && r.data.visibility === "private" && r.data.registeredGuests.length === 1 && r.data.unregisteredGuests.length === 1, r.data);
+  const privateEventId = r.data.id;
+  testEvents.push(privateEventId);
+  const guestBookingId = r.data.registeredGuests[0].bookingId;
+
+  // Approve the private event so it's accessible.
+  r = await req("PUT", `/admin/events/${privateEventId}/approve`, { token: adminToken });
+  check("PUT /admin/events/:id/approve (private event)", r.status === 200, r.data);
+
+  // 2) Private event does NOT appear in public listing.
+  r = await req("GET", "/events");
+  const privateInList = (r.data || []).some((e) => e.id === privateEventId);
+  check("GET /events (private event hidden)", r.status === 200 && !privateInList, r.data);
+
+  // 3) Organizer can see the private event detail.
+  r = await req("GET", `/events/${privateEventId}`, { token: orgToken });
+  check("GET /events/:id (organizer sees private)", r.status === 200 && r.data.id === privateEventId, r.data);
+
+  // 4) Invited registered guest can see the private event detail.
+  r = await req("GET", `/events/${privateEventId}`, { token: await (await req("POST", "/auth/login", { body: { phonenumber: guestPhone, password: "secret123" } })).data?.token });
+  // We need to get the guest's token properly.
+  const guestLogin = await req("POST", "/auth/login", { body: { phonenumber: guestPhone, password: "secret123" } });
+  const guestToken = guestLogin.data.token;
+  r = await req("GET", `/events/${privateEventId}`, { token: guestToken });
+  check("GET /events/:id (invited guest sees private)", r.status === 200 && r.data.id === privateEventId, r.data);
+
+  // 5) Non-invited user cannot see the private event.
+  r = await req("GET", `/events/${privateEventId}`, { token: userToken });
+  check("GET /events/:id (non-invited user -> 404)", r.status === 404, r.data);
+
+  // 6) Unauthenticated user cannot see the private event.
+  r = await req("GET", `/events/${privateEventId}`);
+  check("GET /events/:id (unauthenticated -> 404)", r.status === 404, r.data);
+
+  // 7) Auto-created ticket works — guest can see it in My Bookings.
+  r = await req("GET", "/tickets/my", { token: guestToken });
+  const guestTickets = r.data || [];
+  const autoTicket = guestTickets.find((t) => t.id === guestBookingId);
+  check("GET /tickets/my (auto-created ticket visible)", r.status === 200 && !!autoTicket, r.data);
+
+  // 8) QR code for auto-created ticket.
+  if (guestBookingId) {
+    r = await req("GET", `/tickets/${guestBookingId}/qr`, { token: guestToken });
+    check("GET /tickets/:id/qr (auto-created ticket QR)", r.status === 200, { status: r.status });
+  }
+
+  // 9) Organizer can list guests for private event.
+  r = await req("GET", `/events/${privateEventId}/guests`, { token: orgToken });
+  check("GET /events/:id/guests", r.status === 200 && r.data.guests.length === 2, r.data);
+
+  // 10) Non-organizer cannot list guests.
+  r = await req("GET", `/events/${privateEventId}/guests`, { token: userToken });
+  check("GET /events/:id/guests (non-organizer -> 403)", r.status === 403, r.data);
+
+  // 11) guests endpoint on a non-private event -> 400.
+  r = await req("GET", `/events/${newEventId}/guests`, { token: orgToken });
+  check("GET /events/:id/guests (public event -> 400)", r.status === 400, r.data);
+
+  // 12) Duplicate phone numbers in guest list -> rejected.
+  r = await req("POST", "/events", {
+    token: orgToken,
+    body: {
+      title: "Dup Guests " + stamp, location: "Addis", capacity: 10, startDate: future, endDate: later,
+      visibility: "private",
+      guests: [
+        { fullname: "A", phonenumber: "0911000111" },
+        { fullname: "B", phonenumber: "0911000111" },
+      ],
+    },
+  });
+  check("POST /events (private, duplicate phones -> 400)", r.status === 400 && /duplicate/i.test(r.data.error), r.data);
+
+  // 13) Empty guest list for private event -> rejected.
+  r = await req("POST", "/events", {
+    token: orgToken,
+    body: {
+      title: "Empty Guests " + stamp, location: "Addis", capacity: 10, startDate: future, endDate: later,
+      visibility: "private", guests: [],
+    },
+  });
+  check("POST /events (private, empty guests -> 400)", r.status === 400 && /at least one guest/i.test(r.data.error), r.data);
+
+  // 14) Guest without phone number -> rejected.
+  r = await req("POST", "/events", {
+    token: orgToken,
+    body: {
+      title: "No Phone " + stamp, location: "Addis", capacity: 10, startDate: future, endDate: later,
+      visibility: "private",
+      guests: [{ fullname: "NoPhone" }],
+    },
+  });
+  check("POST /events (private, guest without phone -> 400)", r.status === 400 && /phone number/i.test(r.data.error), r.data);
+
+  // 15) Non-invited user cannot book a private event ticket.
+  r = await req("POST", "/tickets/book", { token: userToken, body: { eventId: privateEventId, quantity: 1, tier: "Normal" } });
+  check("POST /tickets/book (private event, non-invited -> 404)", r.status === 404, r.data);
+
+  // 16) Visibility field shows in event detail.
+  r = await req("GET", `/events/${privateEventId}`, { token: orgToken });
+  check("GET /events/:id (visibility field present)", r.status === 200 && r.data.visibility === "private", r.data);
+
+  // 17) Public event has visibility = 'public'.
+  r = await req("GET", `/events/${archEventId}`);
+  check("GET /events/:id (public event visibility)", r.status === 200 && r.data.visibility === "public", r.data);
+
+  // 18) Registration auto-links pending private event guest invitations.
+  const linkPhone = "092" + (Date.now() % 10000000 + 1000000);
+  const linkName = "Auto Link Guest";
+  const linkEmail = emailOf("link");
+  r = await req("POST", "/events", {
+    token: orgToken,
+    body: {
+      title: "Auto Link Test",
+      description: "testing guest auto-link",
+      category: "Technology",
+      location: "Link City",
+      price: 0,
+      capacity: 5,
+      startDate: future,
+      endDate: later,
+      status: "Pending",
+      visibility: "private",
+      ticketTiers: [{ name: "Normal", price: 0, quantity: 5 }],
+      guests: [{ fullname: linkName, phonenumber: linkPhone }],
+    },
+  });
+  check("POST /events (private for auto-link test)", r.status === 201 && r.data.unregisteredGuests.length === 1, r.data);
+  const linkEventId = r.data.id;
+  testEvents.push(linkEventId);
+
+  r = await req("PUT", `/admin/events/${linkEventId}/approve`, { token: adminToken });
+  check("PUT /admin/events/:id/approve (auto-link event)", r.status === 200, r.data);
+
+  // Register a new user with the same phone number as the pending guest.
+  await register({ fullname: linkName, phonenumber: linkPhone, password: "secret123", email: linkEmail });
+  const linkUserId = trackUser(linkPhone);
+  await verifyEmail(linkEmail, getTestCode(linkEmail));
+
+  // Verify the guest row now has a userId and a booked ticket was created.
+  const linkGuest = db.prepare("SELECT * FROM private_event_guests WHERE eventId = ? AND phonenumber = ?").get(linkEventId, linkPhone);
+  check("private_event_guests linked userId", linkGuest && linkGuest.userId !== null, linkGuest);
+
+  const linkBooking = db.prepare("SELECT * FROM booked_tickets WHERE eventId = ? AND userId = ?").get(linkEventId, linkGuest.userId);
+  check("booked_tickets auto-created for linked guest", linkBooking && linkBooking.quantity === 1 && linkBooking.tier, linkBooking);
+
+  // The linked guest can now see the private event.
+  const linkToken = (await req("POST", "/auth/login", { body: { phonenumber: linkPhone, password: "secret123" } })).data.token;
+  r = await req("GET", `/events/${linkEventId}`, { token: linkToken });
+  check("GET /events/:id (linked guest sees private)", r.status === 200 && r.data.id === linkEventId, r.data);
+
+  // The linked guest can see their booked ticket.
+  r = await req("GET", "/tickets/my", { token: linkToken });
+  const linkTicket = (r.data || []).find((t) => t.eventTitle === "Auto Link Test");
+  check("GET /tickets/my (linked guest sees auto-booked ticket)", !!linkTicket && linkTicket.tier, linkTicket);
 
   // ---- CLEANUP: remove every record this test created ----
   for (const eid of testEvents) {
