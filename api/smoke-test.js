@@ -456,9 +456,9 @@ const verifyEmail = (email, code) => req("POST", "/auth/verify-email", { body: {
   const tokenPayload = { ticketId: normalBookingId, eventId: archEventId, userId, event: "Ticket Arch Event", attendee: "y", phone: "z", date: "2026-01-01", qty: 1, tier: "Normal", ts: "2026-01-01T00:00:00Z" };
   tokenPayload.qrCode = db.prepare("SELECT qrCode FROM booked_tickets WHERE id = ?").get(normalBookingId).qrCode;
   r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: JSON.stringify(tokenPayload) } });
-  check("POST /attendance/scan (ticket-arch success, token verified)", r.status === 200 && r.data.status === "success" && r.data.message === "Entry allowed." && r.data.scannedBy === orgId, r.data);
+  check("POST /attendance/scan (ticket-arch success, token verified)", r.status === 200 && r.data.success === true && r.data.status === "APPROVED" && r.data.message === "Ticket verified successfully." && r.data.scannedBy === orgId, r.data);
   r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: JSON.stringify(tokenPayload) } });
-  check("POST /attendance/scan (ticket-arch duplicate rejected)", r.status === 200 && r.data.status === "duplicate", r.data);
+  check("POST /attendance/scan (ticket-arch duplicate rejected)", r.status === 200 && r.data.success === false && r.data.status === "EXPIRED" && r.data.message === "This ticket has already been used.", r.data);
   const badTokenPayload = { ...tokenPayload, qrCode: "not-the-real-token" };
   r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: JSON.stringify(badTokenPayload) } });
   check("POST /attendance/scan (wrong qrCode token -> 400)", r.status === 400, r.data);
@@ -520,10 +520,10 @@ const verifyEmail = (email, code) => req("POST", "/auth/verify-email", { body: {
   const vipTicket = myTickets.find((t) => String(t.eventTitle || "").startsWith("Smoke Event"));
   const scanPayload = JSON.stringify({ ticketId: vipTicket.id, eventId: newEventId, userId, event: "x", attendee: "y", phone: "z", date: "2026-01-01", qty: 1, tier: "VIP", ts: "2026-01-01T00:00:00Z" });
   r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: scanPayload } });
-  check("POST /attendance/scan (success)", r.status === 200 && r.data.status === "success", r.data);
+  check("POST /attendance/scan (success)", r.status === 200 && r.data.success === true && r.data.status === "APPROVED", r.data);
 
   r = await req("POST", "/attendance/scan", { token: orgToken, body: { qrData: scanPayload } });
-  check("POST /attendance/scan (duplicate)", r.status === 200 && r.data.status === "duplicate", r.data);
+  check("POST /attendance/scan (duplicate)", r.status === 200 && r.data.success === false && r.data.status === "EXPIRED", r.data);
 
   // scannedBy audit trail recorded for the successful scan.
   const scannedRow = db.prepare("SELECT scanned, scannedBy, scannedAt FROM booked_tickets WHERE id = ?").get(vipTicket.id);
@@ -567,7 +567,7 @@ const verifyEmail = (email, code) => req("POST", "/auth/verify-email", { body: {
     req("POST", "/attendance/scan", { token: orgToken, body: { qrData: racePayload } }),
   ]);
   const raceStatuses = [race1.data.status, race2.data.status].sort().join(",");
-  check("concurrent scan -> exactly one success", raceStatuses === "duplicate,success", { r1: race1.data.status, r2: race2.data.status });
+  check("concurrent scan -> exactly one success", raceStatuses === "APPROVED,EXPIRED", { r1: race1.data.status, r2: race2.data.status });
 
   // Attendee list exposes scannedBy + scanner name for the organizer.
   r = await req("GET", `/attendance/event/${newEventId}`, { token: orgToken });

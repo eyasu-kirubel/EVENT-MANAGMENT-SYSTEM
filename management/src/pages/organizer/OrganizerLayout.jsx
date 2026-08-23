@@ -69,20 +69,22 @@ export default function OrganizerLayout() {
           </div>
         </div>
 
-        <nav className="dashboard-nav" aria-label="Organizer navigation">
-          {organizerLinks.map(({ to, label, icon: Icon, end }) => (
-            <SidebarNavLink key={to} to={to} label={label} icon={Icon} end={end} />
-          ))}
-        </nav>
+        <div className="sidebar-nav-area">
+          <nav className="dashboard-nav" aria-label="Organizer navigation">
+            {organizerLinks.map(({ to, label, icon: Icon, end }) => (
+              <SidebarNavLink key={to} to={to} label={label} icon={Icon} end={end} />
+            ))}
+          </nav>
 
-        <div className="sidebar-section-divider" />
+          <div className="sidebar-section-divider" />
 
-        <nav className="dashboard-nav" aria-label="Customer navigation">
-          <span className="sidebar-section-label">Customer</span>
-          {customerLinks.map(({ to, label, icon: Icon }) => (
-            <SidebarNavLink key={to} to={to} label={label} icon={Icon} />
-          ))}
-        </nav>
+          <nav className="dashboard-nav" aria-label="Customer navigation">
+            <span className="sidebar-section-label">Customer</span>
+            {customerLinks.map(({ to, label, icon: Icon }) => (
+              <SidebarNavLink key={to} to={to} label={label} icon={Icon} />
+            ))}
+          </nav>
+        </div>
 
         <div className="sidebar-user">
           <div className="sidebar-avatar">{(user?.fullname || "O").charAt(0).toUpperCase()}</div>

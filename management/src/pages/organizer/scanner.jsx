@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { BsCameraVideo, BsCheckCircle, BsQrCodeScan, BsXCircle } from "react-icons/bs";
 import { Html5Qrcode } from "html5-qrcode";
 import { api } from "../../utils/api";
 
 const SCANNER_ID = "organizer-qr-reader";
+const COOLDOWN_MS = 3000;
 
 export default function OrganizerScanner() {
   const scannerRef = useRef(null);
+  const cooldownRef = useRef(null);
+  const busyRef = useRef(false);
   const [running, setRunning] = useState(false);
   const [manual, setManual] = useState("");
   const [message, setMessage] = useState("");
@@ -15,9 +18,17 @@ export default function OrganizerScanner() {
 
   useEffect(() => {
     return () => {
+      clearCooldown();
       stopCamera();
     };
   }, []);
+
+  function clearCooldown() {
+    if (cooldownRef.current) {
+      clearTimeout(cooldownRef.current);
+      cooldownRef.current = null;
+    }
+  }
 
   async function startCamera() {
     setMessage("");
@@ -50,17 +61,20 @@ export default function OrganizerScanner() {
         backCamera.id,
         {
           fps: 10,
-          qrbox: { width: 230, height: 230 },
-          aspectRatio: 1,
+          qrbox: { width: 250, height: 250 },
         },
         async (decodedText) => {
+          console.log("QR DETECTED:", decodedText);
+          if (busyRef.current || cooldownRef.current) {
+            return;
+          }
           await stopCamera();
           await submitScan(decodedText);
         },
-        () => {
-          // QR not detected yet.
-        }
+        () => {}
       );
+
+      console.log("QR scanner started");
     } catch (err) {
       scannerRef.current = null;
       setRunning(false);
@@ -94,27 +108,34 @@ export default function OrganizerScanner() {
     setRunning(false);
   }
 
-  async function submitScan(value) {
+  const submitScan = useCallback(async (value) => {
     const raw = String(value || "").trim();
     if (!raw) return;
 
+    busyRef.current = true;
     setBusy(true);
     setMessage("");
     setResult(null);
 
     try {
       const data = await api.post("/attendance/scan", { qrData: raw });
-      setResult({ ok: true, data });
+      setResult({ ok: data.success === true, status: data.status, data });
       setManual("");
     } catch (err) {
-      setResult({
-        ok: false,
-        data: { message: err?.message || "The ticket could not be scanned." },
-      });
+      const msg = err?.message || "The ticket could not be scanned.";
+      let status = "INVALID";
+      if (/not authorized|forbidden/i.test(msg)) status = "REJECTED";
+      setResult({ ok: false, status, data: { message: msg } });
     } finally {
       setBusy(false);
+      busyRef.current = false;
+      clearCooldown();
+      cooldownRef.current = setTimeout(() => {
+        setResult(null);
+        cooldownRef.current = null;
+      }, COOLDOWN_MS);
     }
-  }
+  }, []);
 
   return (
     <section className="page dashboard-page">
@@ -135,7 +156,7 @@ export default function OrganizerScanner() {
               className={`html5-qr-reader ${running ? "active" : ""}`}
             />
 
-            {!running && (
+            {!running && !result && (
               <div className="scanner-placeholder">
                 <BsQrCodeScan />
                 <span>Camera preview</span>
@@ -162,6 +183,21 @@ export default function OrganizerScanner() {
           </div>
 
           {message && <div className="notice warning">{message}</div>}
+
+          {result && (
+            <div className={`scanner-status-indicator scanner-status-${result.status === "APPROVED" ? "approved" : "expired"}`}>
+              <div className="scanner-status-dot" />
+              <div className="scanner-status-text">
+                <strong>{result.status}</strong>
+                <span>{result.data?.message || "Unknown result."}</span>
+              </div>
+              {result.ok && result.data?.event && (
+                <div className="scanner-status-event">
+                  {result.data.event.title} &middot; {result.data.event.location}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="surface-card scanner-manual-card">
@@ -173,6 +209,7 @@ export default function OrganizerScanner() {
               value={manual}
               onChange={(e) => setManual(e.target.value)}
               placeholder="Ticket ID or QR payload"
+              onKeyDown={(e) => { if (e.key === "Enter" && manual.trim() && !busy) submitScan(manual); }}
             />
             <button
               className="btn btn-primary"
@@ -187,7 +224,7 @@ export default function OrganizerScanner() {
             <div className={`scan-feedback ${result.ok ? "success" : "error"}`}>
               {result.ok ? <BsCheckCircle /> : <BsXCircle />}
               <div>
-                <strong>{result.ok ? "Ticket scanned" : "Scan failed"}</strong>
+                <strong>{result.status}</strong>
                 <p>
                   {result.data?.message ||
                     (result.ok

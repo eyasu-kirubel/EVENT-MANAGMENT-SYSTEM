@@ -53,26 +53,26 @@ function getStats(req, res) {
 function scan(req, res) {
   const { qrData } = req.body;
   if (!qrData || typeof qrData !== "string") {
-    return res.status(400).json({ error: "qrData is required." });
+    return res.status(400).json({ success: false, status: "INVALID", error: "qrData is required.", message: "qrData is required." });
   }
 
   let parsed;
   try {
     parsed = JSON.parse(qrData);
   } catch {
-    return res.status(400).json({ error: "Invalid QR code data." });
+    return res.status(400).json({ success: false, status: "INVALID", error: "Invalid QR code data.", message: "Invalid QR code data." });
   }
 
   // The QR must carry a positive integer ticket id. Anything else (strings,
   // zero, negatives, missing) is rejected as invalid data.
   const ticketId = Number(parsed && parsed.ticketId);
   if (!Number.isInteger(ticketId) || ticketId < 1) {
-    return res.status(400).json({ error: "Invalid QR code data." });
+    return res.status(400).json({ success: false, status: "INVALID", error: "Invalid QR code data.", message: "Invalid QR code data." });
   }
 
   const ticket = db.prepare("SELECT * FROM booked_tickets WHERE id = ?").get(ticketId);
   if (!ticket) {
-    return res.status(404).json({ error: "Ticket not found." });
+    return res.status(404).json({ success: false, status: "INVALID", error: "Ticket not found.", message: "Ticket not found." });
   }
 
   // New-format QRs carry a per-booking random token (booked_tickets.qrCode,
@@ -82,7 +82,7 @@ function scan(req, res) {
   // only protected by the organizer-ownership check below.
   if (parsed.qrCode !== undefined && parsed.qrCode !== null) {
     if (typeof parsed.qrCode !== "string" || parsed.qrCode !== ticket.qrCode) {
-      return res.status(400).json({ error: "Invalid QR code data." });
+      return res.status(400).json({ success: false, status: "INVALID", error: "Invalid QR code data.", message: "Invalid QR code data." });
     }
   }
 
@@ -90,7 +90,7 @@ function scan(req, res) {
   // is never trusted. Only the organizer who owns the event may scan.
   const event = db.prepare("SELECT * FROM events WHERE id = ? AND organizerId = ?").get(ticket.eventId, req.user.id);
   if (!event) {
-    return res.status(403).json({ error: "You are not authorized to scan tickets for this event." });
+    return res.status(403).json({ success: false, status: "REJECTED", error: "You are not authorized to scan tickets for this event.", message: "You are not authorized to scan tickets for this event." });
   }
 
   // Duplicate-scan protection is enforced atomically by the database itself:
@@ -104,8 +104,9 @@ function scan(req, res) {
 
   if (result.changes === 0) {
     return res.json({
-      status: "duplicate",
-      message: "This ticket has already been scanned.",
+      success: false,
+      status: "EXPIRED",
+      message: "This ticket has already been used.",
       ticketId: ticket.id,
       quantity: ticket.quantity,
       scannedAt: ticket.scannedAt,
@@ -114,8 +115,9 @@ function scan(req, res) {
   }
 
   res.json({
-    status: "success",
-    message: "Entry allowed.",
+    success: true,
+    status: "APPROVED",
+    message: "Ticket verified successfully.",
     ticketId: ticket.id,
     quantity: ticket.quantity,
     scannedAt: now,
