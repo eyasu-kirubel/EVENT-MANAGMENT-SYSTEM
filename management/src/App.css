@@ -12976,3 +12976,192 @@ body:has(.reg2-page) {
 .login-submit-btn:hover {
   background: #5B21B6 !important;
 }
+/* =========================================================
+   FINAL FIX - CUSTOMER EVENTS DATE FILTER
+   This overrides the older conflicting date-filter rules.
+   ========================================================= */
+
+.customer-events-page .event-date-range {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 12px !important;
+  width: 100% !important;
+  margin: 14px auto 24px !important;
+  flex-wrap: nowrap !important;
+}
+
+/* FROM and TO text must have identical dimensions */
+.customer-events-page .event-date-label,
+.customer-events-page .event-date-to {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+
+  width: 32px !important;
+  height: 44px !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+
+  color: #6B7280 !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  line-height: 44px !important;
+  white-space: nowrap !important;
+}
+
+/* Both date containers must be identical */
+.customer-events-page .event-date-input {
+  position: relative !important;
+
+  width: 168px !important;
+  height: 44px !important;
+
+  flex: 0 0 168px !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Both actual date inputs must be identical */
+.customer-events-page .event-date-input input[type="date"] {
+  display: block !important;
+
+  width: 168px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+
+  box-sizing: border-box !important;
+
+  margin: 0 !important;
+  padding: 0 38px 0 13px !important;
+
+  border: 1px solid #DFE2EB !important;
+  border-radius: 11px !important;
+
+  background: #FFFFFF !important;
+
+  color: #242424 !important;
+
+  font-family: inherit !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+
+  line-height: 44px !important;
+
+  outline: none !important;
+
+  box-shadow: 0 5px 16px rgba(50, 34, 86, 0.05) !important;
+}
+
+/* Keep the custom calendar icon centered */
+.customer-events-page .event-date-input svg {
+  position: absolute !important;
+
+  right: 12px !important;
+  top: 50% !important;
+
+  width: 15px !important;
+  height: 15px !important;
+
+  transform: translateY(-50%) !important;
+
+  color: #6B7280 !important;
+
+  pointer-events: none !important;
+}
+
+/* Focus */
+.customer-events-page .event-date-input input[type="date"]:focus {
+  border-color: #4527A0 !important;
+
+  box-shadow:
+    0 0 0 3px rgba(69, 39, 160, 0.10) !important;
+}
+
+/* Remove browser differences between the two date controls */
+.customer-events-page
+.event-date-input
+input[type="date"]::-webkit-datetime-edit {
+  padding: 0 !important;
+}
+
+.customer-events-page
+.event-date-input
+input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+  padding: 0 !important;
+}
+
+.customer-events-page
+.event-date-input
+input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0 !important;
+  width: 24px !important;
+  cursor: pointer !important;
+}
+
+/* =========================================================
+   DESKTOP
+   ========================================================= */
+
+@media (min-width: 701px) {
+  .customer-events-page .event-date-range {
+    flex-wrap: nowrap !important;
+  }
+}
+
+/* =========================================================
+   TABLET
+   ========================================================= */
+
+@media (max-width: 700px) {
+  .customer-events-page .event-date-range {
+    justify-content: flex-start !important;
+    flex-wrap: wrap !important;
+  }
+
+  .customer-events-page .event-date-input {
+    width: 168px !important;
+    flex: 0 0 168px !important;
+  }
+
+  .customer-events-page
+  .event-date-input
+  input[type="date"] {
+    width: 168px !important;
+  }
+}
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 480px) {
+  .customer-events-page .event-date-range {
+    display: grid !important;
+
+    grid-template-columns: 40px 1fr !important;
+
+    gap: 8px 10px !important;
+
+    justify-items: stretch !important;
+  }
+
+  .customer-events-page .event-date-label,
+  .customer-events-page .event-date-to {
+    width: 40px !important;
+    justify-content: flex-start !important;
+  }
+
+  .customer-events-page .event-date-input {
+    width: 100% !important;
+    flex: 1 1 auto !important;
+  }
+
+  .customer-events-page
+  .event-date-input
+  input[type="date"] {
+    width: 100% !important;
+  }
+}
